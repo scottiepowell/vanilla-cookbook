@@ -13,6 +13,7 @@ function clearOauthCookies(cookies) {
 	cookies.delete('oauth_state', opts)
 	cookies.delete('oauth_provider', opts)
 	cookies.delete('oauth_code_verifier', opts)
+	cookies.delete('oauth_nonce', opts)
 }
 function bounce(cookies, msg, status = 303) {
 	clearOauthCookies(cookies)
@@ -95,14 +96,15 @@ async function createOidcUser(providerId, providerUserId, attrs) {
 async function handleOidcCallback(url, cookies, locals) {
 	const storedState = cookies.get('oauth_state')
 	const codeVerifier = cookies.get('oauth_code_verifier')
+	const nonce = cookies.get('oauth_nonce')
 
-	if (!storedState || !codeVerifier) {
+	if (!storedState || !codeVerifier || !nonce) {
 		return bounce(cookies, 'auth.msg.invalidOidcState')
 	}
 
 	let oidcUser
 	try {
-		oidcUser = await validateOidcCallback(url, storedState, codeVerifier)
+		oidcUser = await validateOidcCallback(url, storedState, codeVerifier, nonce)
 	} catch (err) {
 		console.error('[OIDC] Token exchange failed:', err)
 		return bounce(cookies, 'auth.msg.oidcAuthFailed')

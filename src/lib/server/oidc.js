@@ -14,6 +14,9 @@ const ISSUER_URL = env.OIDC_ISSUER_URL?.trim() || ''
 const CLIENT_ID = env.OIDC_CLIENT_ID?.trim() || ''
 const CLIENT_SECRET = env.OIDC_CLIENT_SECRET?.trim() || ''
 const BASE = env.ORIGIN?.trim()?.replace(/\/$/, '')
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
+export const GOOGLE_OIDC_ISSUER = 'https://accounts.google.com'
+export const IDENTITY_ONLY_OIDC_SCOPES = Object.freeze(['openid', 'email', 'profile'])
 
 /** Display name for the login button */
 export const oidcName = env.OIDC_NAME?.trim() || 'OIDC'
@@ -26,6 +29,27 @@ export const oidcNameClaim = env.OIDC_NAME_CLAIM?.trim() || 'preferred_username'
 
 /** Scopes to request */
 export const oidcScopes = env.OIDC_SCOPES?.trim() || 'openid email profile'
+
+export function oidcConfigGuard(config = {}) {
+	const reasons = []
+	if (config.NODE_ENV === 'production') reasons.push('production_mode')
+	if (config.CI === 'true' || config.GITHUB_ACTIONS === 'true') reasons.push('ci_context')
+	if (config.AWS_REGION || config.CLOUDFLARE_TUNNEL_TOKEN || config.TUNNEL_TOKEN) reasons.push('deployment_context')
+	if (config.OIDC_ISSUER_URL !== GOOGLE_OIDC_ISSUER) reasons.push('google_issuer_required')
+	const scopes = String(config.OIDC_SCOPES || IDENTITY_ONLY_OIDC_SCOPES.join(' ')).trim().split(/\s+/).filter(Boolean)
+	if (scopes.length !== IDENTITY_ONLY_OIDC_SCOPES.length || scopes.some((scope) => !IDENTITY_ONLY_OIDC_SCOPES.includes(scope))) {
+		reasons.push('identity_only_scopes_required')
+	}
+	try {
+		const target = new URL(config.ORIGIN || '')
+		if (target.protocol !== 'http:' || !LOOPBACK_HOSTS.has(target.hostname) || ![3000, 5173].includes(target.port ? Number(target.port) : 3000)) reasons.push('loopback_origin_required')
+	} catch {
+		reasons.push('loopback_origin_required')
+	}
+	if (!config.OIDC_CLIENT_ID || !config.OIDC_CLIENT_SECRET) reasons.push('local_credentials_required')
+	if (config.OIDC_STORAGE_SCOPES || /drive|storage|cloud/i.test(String(config.OIDC_SCOPES || ''))) reasons.push('storage_scopes_forbidden')
+	return { allowed: reasons.length === 0, reasons }
+}
 
 /** Whether OIDC is configured (all three required env vars present) */
 export const oidcEnabled = !!(ISSUER_URL && CLIENT_ID && CLIENT_SECRET && BASE)
@@ -87,16 +111,18 @@ export async function getAuthorizationUrl() {
 	const codeVerifier = client.randomPKCECodeVerifier()
 	const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier)
 	const state = client.randomState()
+	const nonce = client.randomNonce()
 
 	const url = client.buildAuthorizationUrl(config, {
 		redirect_uri: REDIRECT_URI,
 		scope: oidcScopes,
 		code_challenge: codeChallenge,
 		code_challenge_method: 'S256',
-		state
+		state,
+		nonce
 	})
 
-	return { url, state, codeVerifier }
+	return { url, state, codeVerifier, nonce }
 }
 
 /**
@@ -107,13 +133,14 @@ export async function getAuthorizationUrl() {
  * @param {string} codeVerifier - The PKCE code verifier from the cookie
  * @returns {Promise<{email: string|null, username: string|null, sub: string, emailVerified: boolean}>}
  */
-export async function validateCallback(callbackUrl, expectedState, codeVerifier) {
+export async function validateCallback(callbackUrl, expectedState, codeVerifier, expectedNonce) {
 	const config = await getOidcConfig()
 
 	// Exchange code for tokens (validates state, PKCE, and ID token)
 	const tokens = await client.authorizationCodeGrant(config, callbackUrl, {
 		pkceCodeVerifier: codeVerifier,
-		expectedState
+		expectedState,
+		nonce: expectedNonce
 	})
 
 	// Extract claims from the ID token

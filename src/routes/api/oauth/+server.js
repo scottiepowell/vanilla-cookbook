@@ -11,7 +11,7 @@ export async function GET({ url, cookies }) {
 		if (!oidcEnabled) return new Response('OIDC provider not configured', { status: 400 })
 
 		try {
-			const { url: authUrl, state, codeVerifier } = await getOidcAuthUrl()
+			const { url: authUrl, state, codeVerifier, nonce } = await getOidcAuthUrl()
 
 			cookies.set('oauth_provider', 'oidc', {
 				httpOnly: true,
@@ -26,6 +26,12 @@ export async function GET({ url, cookies }) {
 				maxAge: 600
 			})
 			cookies.set('oauth_code_verifier', codeVerifier, {
+				httpOnly: true,
+				secure: !dev,
+				path: '/',
+				maxAge: 600
+			})
+			cookies.set('oauth_nonce', nonce, {
 				httpOnly: true,
 				secure: !dev,
 				path: '/',
