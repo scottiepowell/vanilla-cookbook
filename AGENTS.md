@@ -1,5 +1,27 @@
 # AI Assistant Guide for Vanilla Cookbook
 
+## Relationship to cookbook-roadmaps-link
+
+This is the external Vanilla Cookbook **core application workspace**. It owns
+the SvelteKit UI and routes, Prisma data model, AuthUser/AuthAccount records,
+Lucia sessions, OIDC callbacks, canonical recipes, and authorization.
+
+The separate workspace below is the sidecar and delivery repository:
+
+```text
+C:\Users\scott\cookbook-roadmaps-link
+```
+
+That repository owns mailbox tasks, result/outbox documentation, deployment
+runbooks, Cloudflare Compose assets, and the AI sidecar. Do not put core user,
+session, cookie, provider-token, or canonical-recipe ownership there, and do not
+copy this core source into it.
+
+For local Google OIDC verification, use loopback-only configuration. For public
+Cloudflare exposure, use a separate runtime with the public origin; the 0034L
+Google guard is intentionally local-only and must not be treated as production
+Google authentication.
+
 Comprehensive guidance for AI/code assistants working on Vanilla Cookbook, a self-hosted SvelteKit recipe manager with advanced parsing, unit conversion, and PWA capabilities.
 
 ## Project Philosophy
@@ -20,7 +42,7 @@ Vanilla Cookbook prioritizes **simplicity in user experience** while handling **
 
 ## Project Structure
 
-```
+```text
 vanilla-cookbook/
 ├── src/
 │   ├── lib/
