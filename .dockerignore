@@ -2,7 +2,8 @@ docs/
 node_modules/
 .git/
 *.log
-.env.local
+.env
+.env.*
 .venv/
 build/
 .svelte-kit/
