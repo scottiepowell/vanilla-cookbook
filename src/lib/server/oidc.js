@@ -140,7 +140,7 @@ export async function validateCallback(callbackUrl, expectedState, codeVerifier,
 	const tokens = await client.authorizationCodeGrant(config, callbackUrl, {
 		pkceCodeVerifier: codeVerifier,
 		expectedState,
-		nonce: expectedNonce
+		expectedNonce
 	})
 
 	// Extract claims from the ID token
