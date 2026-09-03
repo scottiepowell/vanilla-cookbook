@@ -3,161 +3,237 @@
 	import Card from '$lib/components/ui/Card.svelte'
 	import Textarea from '$lib/components/ui/Form/Textarea.svelte'
 
-	let recipeText = $state('')
+	let prompt = $state('')
 	let source = $state('')
 	let loading = $state(false)
-	let message = $state('')
+	let error = $state('')
+	let chatId = $state(null)
+	let messages = $state([])
 	let draft = $state(null)
-	let warnings = $state([])
 	let grounding = $state(null)
+	let changeCount = $state(0)
+	let maxChanges = $state(10)
+	let pendingReplacement = $state('')
 
-	async function structureRecipe() {
-		loading = true
-		message = ''
+	function resetChat() {
+		prompt = ''
+		source = ''
+		error = ''
+		chatId = null
+		messages = []
 		draft = null
-		warnings = []
 		grounding = null
+		changeCount = 0
+		maxChanges = 10
+		pendingReplacement = ''
+	}
 
+	function applyResult(result) {
+		chatId = result.chatId
+		if (result.draft) draft = result.draft
+		if (result.grounding) grounding = result.grounding
+		changeCount = result.changeCount || 0
+		maxChanges = result.maxChanges || 10
+		messages = [...messages, { role: 'assistant', text: result.assistantMessage }]
+		pendingReplacement = result.replacementSuggested ? messages.at(-2)?.text || '' : ''
+	}
+
+	async function sendPrompt(override = null) {
+		const text = (override ?? prompt).trim()
+		if (!text || loading) return
+		loading = true
+		error = ''
+		messages = [...messages, { role: 'user', text }]
+		prompt = ''
 		try {
-			const response = await fetch('/api/ai/import-recipe', {
+			const starting = !chatId
+			const endpoint = starting
+				? '/api/ai/recipe-chat/start'
+				: `/api/ai/recipe-chat/${chatId}/message`
+			const response = await fetch(endpoint, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ text: recipeText, source })
+				body: JSON.stringify(starting ? { text, source } : { text })
 			})
 			const result = await response.json()
 			if (!response.ok || result.status !== 'ok') {
-				message = result.message || 'Cookbook AI could not structure this recipe.'
+				error = result.message || 'Cookbook AI could not continue this recipe.'
 				return
 			}
-			draft = result.draft
-			warnings = result.warnings || []
-			grounding = result.grounding || null
-			if (!draft) message = 'Cookbook AI needs more recipe detail before it can create a draft.'
+			applyResult(result)
 		} catch {
-			message = 'Cookbook AI is temporarily unavailable.'
+			error = 'Cookbook AI is temporarily unavailable.'
 		} finally {
 			loading = false
 		}
 	}
+
+	async function startSuggestedRecipe() {
+		const idea = pendingReplacement
+		resetChat()
+		await sendPrompt(idea)
+	}
+
+	function keepCurrentRecipe() {
+		pendingReplacement = ''
+		messages = [
+			...messages,
+			{ role: 'assistant', text: 'Okay, I kept the current recipe. What would you like to change?' }
+		]
+	}
 </script>
 
-<svelte:head>
-	<title>AI Recipe Assistant</title>
-</svelte:head>
+<svelte:head><title>AI Recipe Chat</title></svelte:head>
 
-<div class="mx-auto flex max-w-4xl flex-col gap-6">
+<div class="mx-auto flex max-w-4xl flex-col gap-5">
 	<div>
 		<p class="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Cookbook AI</p>
-		<h1 class="mt-2 text-3xl font-bold">Structure a recipe with AI</h1>
+		<h1 class="mt-2 text-3xl font-bold">Build a recipe together</h1>
 		<p class="mt-2 text-base-content/70">
-			Paste recipe notes or copied recipe text. The assistant creates a reviewable draft; it does
-			not save anything automatically.
+			Start with an idea, then ask for ingredient, serving, method, or instruction changes. Each
+			recipe allows up to ten changes and nothing is saved automatically.
 		</p>
 	</div>
 
-	<Card bordered={true}>
-		<div class="flex flex-col gap-4">
-			<Textarea
-				label="Recipe text"
-				placeholder="Paste ingredients, directions, servings, and any notes..."
-				rows={12}
-				bind:value={recipeText}
-			/>
-			<label class="form-control w-full">
-				<span class="label-text mb-2">Source URL or note (optional)</span>
-				<input class="input input-bordered w-full" bind:value={source} maxlength="500" />
-			</label>
-			<div class="card-actions justify-end">
-				<Button onclick={structureRecipe} disabled={loading || !recipeText.trim()}>
-					{loading ? 'Structuring recipe…' : 'Create AI draft'}
-				</Button>
-			</div>
+	{#if messages.length}
+		<div class="flex flex-col gap-3" aria-live="polite">
+			{#each messages as item}
+				<div class:ml-auto={item.role === 'user'} class="max-w-[85%]">
+					<div
+						class="rounded-2xl px-4 py-3 text-sm"
+						class:bg-primary={item.role === 'user'}
+						class:text-primary-content={item.role === 'user'}
+						class:bg-base-200={item.role === 'assistant'}
+					>
+						{item.text}
+					</div>
+				</div>
+			{/each}
 		</div>
-	</Card>
+	{/if}
 
-	{#if message}
-		<div class="alert alert-warning" role="status">{message}</div>
+	{#if pendingReplacement}
+		<div class="flex flex-wrap gap-3">
+			<Button onclick={startSuggestedRecipe}>Start new recipe</Button>
+			<Button onclick={keepCurrentRecipe} style="outline">Keep current recipe</Button>
+		</div>
 	{/if}
 
 	{#if draft}
 		<Card bordered={true}>
-			<div class="flex flex-col gap-5">
-				<div>
-					<p class="text-xs font-semibold uppercase tracking-wide text-primary">
-						AI draft — review before saving
-					</p>
-					<h2 class="mt-1 text-2xl font-bold">{draft.title}</h2>
-					{#if draft.description}<p class="mt-2 text-base-content/70">{draft.description}</p>{/if}
-					{#if draft.servings}<p class="mt-2 text-sm">Serves {draft.servings}</p>{/if}
-				</div>
+			<details open class="disclosure">
+				<summary class="cursor-pointer text-xl font-bold">Recipe draft</summary>
+				<div class="mt-4 flex flex-col gap-4">
+					<div>
+						<p class="text-xs font-semibold uppercase tracking-wide text-primary">
+							Review before saving
+						</p>
+						<h2 class="mt-1 text-2xl font-bold">{draft.title}</h2>
+						{#if draft.description}<p class="mt-2 text-base-content/70">{draft.description}</p>{/if}
+						{#if draft.servings}<p class="mt-2 text-sm">Serves {draft.servings}</p>{/if}
+					</div>
 
-				<div>
-					<h3 class="text-lg font-semibold">Ingredients</h3>
-					<ul class="mt-2 list-disc space-y-1 pl-5">
-						{#each draft.ingredients || [] as ingredient}
-							<li>
-								{[ingredient.quantity, ingredient.unit, ingredient.name, ingredient.note]
-									.filter(Boolean)
-									.join(' ')}
-							</li>
-						{/each}
-					</ul>
-				</div>
+					<details open class="disclosure rounded-lg border border-base-300 p-3">
+						<summary class="cursor-pointer font-semibold"
+							>Ingredients ({draft.ingredients.length})</summary
+						>
+						<ul class="mt-3 list-disc space-y-1 pl-5">
+							{#each draft.ingredients as ingredient}
+								<li>
+									{[ingredient.quantity, ingredient.unit, ingredient.name, ingredient.note]
+										.filter(Boolean)
+										.join(' ')}
+								</li>
+							{/each}
+						</ul>
+					</details>
 
-				<div>
-					<h3 class="text-lg font-semibold">Directions</h3>
-					<ol class="mt-2 list-decimal space-y-2 pl-5">
-						{#each draft.instructions || [] as instruction}
-							<li>{instruction.text}</li>
-						{/each}
-					</ol>
+					<details open class="disclosure rounded-lg border border-base-300 p-3">
+						<summary class="cursor-pointer font-semibold"
+							>Instructions ({draft.instructions.length})</summary
+						>
+						<ol class="mt-3 list-decimal space-y-2 pl-5">
+							{#each draft.instructions as instruction}
+								<li>{instruction.text}</li>
+							{/each}
+						</ol>
+					</details>
 				</div>
-
-				{#if warnings.length}
-					<div class="alert alert-info"><span>{warnings.join(' ')}</span></div>
-				{/if}
-			</div>
+			</details>
 		</Card>
 	{/if}
 
 	{#if grounding}
 		<Card bordered={true}>
-			<div class="flex flex-col gap-3">
-				<div>
-					<p class="text-xs font-semibold uppercase tracking-wide text-primary">
-						Local recipe grounding
+			<details class="disclosure">
+				<summary class="cursor-pointer font-semibold">Local recipe grounding</summary>
+				<div class="mt-3 text-sm text-base-content/70">
+					<p>{grounding.retrievedCount} examples found · {grounding.packedCount} used.</p>
+					<p class="mt-1">
+						{grounding.relevance || 'unknown'} relevance · {grounding.support || 'unknown'} support
 					</p>
-					<h2 class="mt-1 text-xl font-bold">
-						{grounding.grounded
-							? 'Grounded with local recipe examples'
-							: 'Local recipe examples reviewed'}
-					</h2>
-					<p class="mt-2 text-sm text-base-content/70">
-						{grounding.retrievedCount} examples found · {grounding.packedCount} used to help structure
-						this draft.
-					</p>
-				</div>
-
-				<div class="flex flex-wrap gap-2">
-					{#if grounding.relevance}
-						<span class="badge badge-outline">{grounding.relevance} relevance</span>
-					{/if}
-					{#if grounding.support}
-						<span class="badge badge-outline">{grounding.support} support</span>
-					{/if}
-				</div>
-
-				{#if grounding.examples?.length}
-					<div>
-						<h3 class="text-sm font-semibold">Examples consulted</h3>
-						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
-							{#each grounding.examples as title}
-								<li>{title}</li>
-							{/each}
+					{#if grounding.examples?.length}
+						<ul class="mt-2 list-disc pl-5">
+							{#each grounding.examples as title}<li>{title}</li>{/each}
 						</ul>
-					</div>
-				{/if}
-			</div>
+					{/if}
+				</div>
+			</details>
 		</Card>
 	{/if}
+
+	<Card bordered={true}>
+		<div class="flex flex-col gap-4">
+			<Textarea
+				label={chatId ? 'Ask for a recipe change' : 'What recipe would you like to make?'}
+				placeholder={chatId
+					? 'Try: Add mushrooms, make it vegetarian, or serve six...'
+					: 'Try: Green chile enchiladas with chicken...'}
+				rows={chatId ? 4 : 8}
+				bind:value={prompt}
+			/>
+			{#if !chatId}
+				<label class="form-control w-full">
+					<span class="label-text mb-2">Source URL or note (optional)</span>
+					<input class="input input-bordered w-full" bind:value={source} maxlength="500" />
+				</label>
+			{/if}
+			<div class="flex items-center justify-between gap-3">
+				<div class="text-sm text-base-content/60">
+					{#if chatId}{changeCount} of {maxChanges} changes used{/if}
+				</div>
+				<div class="flex gap-2">
+					{#if chatId}<Button onclick={resetChat} style="outline">Start over</Button>{/if}
+					<Button
+						onclick={() => sendPrompt()}
+						disabled={loading ||
+							!prompt.trim() ||
+							changeCount >= maxChanges ||
+							!!pendingReplacement}
+					>
+						{loading ? 'Thinking…' : chatId ? 'Send change' : 'Create recipe'}
+					</Button>
+				</div>
+			</div>
+		</div>
+	</Card>
+
+	{#if error}<div class="alert alert-warning" role="status">{error}</div>{/if}
 </div>
+
+<style>
+	.disclosure > summary {
+		list-style: none;
+	}
+	.disclosure > summary::-webkit-details-marker {
+		display: none;
+	}
+	.disclosure > summary::after {
+		float: right;
+		content: '+';
+		font-size: 1.25rem;
+	}
+	.disclosure[open] > summary::after {
+		content: '−';
+	}
+</style>
