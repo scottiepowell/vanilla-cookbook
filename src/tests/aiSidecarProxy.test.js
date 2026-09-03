@@ -27,7 +27,27 @@ describe('authenticated AI sidecar proxy', () => {
 				JSON.stringify({
 					draft: { title: 'Test soup', ingredients: [], instructions: [] },
 					model: 'gpt-5.4-nano',
-					warnings: []
+					warnings: [],
+					retrieval: {
+						retrieved_count: 3,
+						packed_count: 2,
+						relevance_category: 'strong',
+						support_level: 'strong',
+						should_claim_rag_grounded: true,
+						query: 'private retrieval query',
+						matched_result_ids: ['private-result-id']
+					},
+					citations: [
+						{
+							id: 'private-citation-id',
+							source_id: 'private-source-id',
+							title: 'Hearty vegetable soup',
+							snippet: 'private dataset snippet',
+							provenance: { source_path: 'private/dataset/path.csv' }
+						},
+						{ title: 'Quick tomato soup' },
+						{ title: 'Hearty vegetable soup' }
+					]
 				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } }
 			)
@@ -55,6 +75,63 @@ describe('authenticated AI sidecar proxy', () => {
 		expect(options.headers['x-ai-operator-token']).toBe('opaque-test-token')
 		expect(JSON.stringify(body)).not.toContain('opaque-test-token')
 		expect(body).toMatchObject({ status: 'ok', model: 'gpt-5.4-nano' })
+		expect(body.grounding).toEqual({
+			grounded: true,
+			retrievedCount: 3,
+			packedCount: 2,
+			citationCount: 3,
+			relevance: 'strong',
+			support: 'strong',
+			examples: ['Hearty vegetable soup', 'Quick tomato soup']
+		})
+		const serializedBody = JSON.stringify(body)
+		for (const privateValue of [
+			'private retrieval query',
+			'private-result-id',
+			'private-citation-id',
+			'private-source-id',
+			'private dataset snippet',
+			'private/dataset/path.csv'
+		]) {
+			expect(serializedBody).not.toContain(privateValue)
+		}
+	})
+
+	it('drops unrecognized grounding labels and bounds public counts and titles', async () => {
+		sidecarFetch.mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					draft: { title: 'Test soup', ingredients: [], instructions: [] },
+					model: 'gpt-5.4-nano',
+					retrieval: {
+						retrieved_count: 5000,
+						packed_count: -1,
+						relevance_category: 'internal-label',
+						support_level: 'strong'
+					},
+					citations: Array.from({ length: 12 }, (_, index) => ({
+						title: `Example ${index + 1}`
+					}))
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			)
+		)
+
+		const response = await POST({
+			request: request({ text: 'Soup ingredients and directions' }),
+			locals: { user: { userId: 'bounded-user' } },
+			fetch: sidecarFetch
+		})
+		const body = await response.json()
+
+		expect(body.grounding).toMatchObject({
+			retrievedCount: 10,
+			packedCount: 0,
+			citationCount: 10,
+			relevance: null,
+			support: 'strong'
+		})
+		expect(body.grounding.examples).toEqual(['Example 1', 'Example 2', 'Example 3'])
 	})
 
 	it('rejects oversized input before contacting the sidecar', async () => {

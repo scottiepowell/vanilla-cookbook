@@ -6,6 +6,38 @@ import { rateLimitCheck } from '$lib/server/rateLimit'
 const MAX_RECIPE_TEXT_CHARS = 12_000
 const REQUEST_TIMEOUT_MS = 30_000
 const LIVE_MODEL = 'gpt-5.4-nano'
+const SAFE_GROUNDING_LABELS = new Set(['strong', 'moderate', 'weak', 'none'])
+
+function safeCount(value, maximum = 10) {
+	return Number.isInteger(value) && value >= 0 ? Math.min(value, maximum) : 0
+}
+
+function safeGrounding(result) {
+	const retrieval = result?.retrieval
+	const citations = Array.isArray(result?.citations) ? result.citations : []
+	if (!retrieval && citations.length === 0) return null
+
+	const examples = [
+		...new Set(
+			citations
+				.map((citation) =>
+					typeof citation?.title === 'string' ? citation.title.trim().slice(0, 120) : ''
+				)
+				.filter(Boolean)
+		)
+	].slice(0, 3)
+	const safeLabel = (value) => (SAFE_GROUNDING_LABELS.has(value) ? value : null)
+
+	return {
+		grounded: retrieval?.should_claim_rag_grounded === true,
+		retrievedCount: safeCount(retrieval?.retrieved_count),
+		packedCount: safeCount(retrieval?.packed_count),
+		citationCount: safeCount(citations.length),
+		relevance: safeLabel(retrieval?.relevance_category),
+		support: safeLabel(retrieval?.support_level),
+		examples
+	}
+}
 
 function unavailable(message = 'Cookbook AI is temporarily unavailable.') {
 	return json({ status: 'unavailable', message }, { status: 503 })
@@ -136,7 +168,8 @@ export async function POST({ request, locals, fetch }) {
 			status: 'ok',
 			draft: attempt.result?.draft ?? null,
 			model: attempt.result?.model === LIVE_MODEL ? LIVE_MODEL : null,
-			warnings: Array.isArray(attempt.result?.warnings) ? attempt.result.warnings.slice(0, 10) : []
+			warnings: Array.isArray(attempt.result?.warnings) ? attempt.result.warnings.slice(0, 10) : [],
+			grounding: safeGrounding(attempt.result)
 		},
 		{ headers: { 'cache-control': 'no-store' } }
 	)

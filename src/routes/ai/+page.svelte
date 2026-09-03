@@ -9,12 +9,14 @@
 	let message = $state('')
 	let draft = $state(null)
 	let warnings = $state([])
+	let grounding = $state(null)
 
 	async function structureRecipe() {
 		loading = true
 		message = ''
 		draft = null
 		warnings = []
+		grounding = null
 
 		try {
 			const response = await fetch('/api/ai/import-recipe', {
@@ -29,6 +31,7 @@
 			}
 			draft = result.draft
 			warnings = result.warnings || []
+			grounding = result.grounding || null
 			if (!draft) message = 'Cookbook AI needs more recipe detail before it can create a draft.'
 		} catch {
 			message = 'Cookbook AI is temporarily unavailable.'
@@ -112,6 +115,47 @@
 
 				{#if warnings.length}
 					<div class="alert alert-info"><span>{warnings.join(' ')}</span></div>
+				{/if}
+			</div>
+		</Card>
+	{/if}
+
+	{#if grounding}
+		<Card bordered={true}>
+			<div class="flex flex-col gap-3">
+				<div>
+					<p class="text-xs font-semibold uppercase tracking-wide text-primary">
+						Local recipe grounding
+					</p>
+					<h2 class="mt-1 text-xl font-bold">
+						{grounding.grounded
+							? 'Grounded with local recipe examples'
+							: 'Local recipe examples reviewed'}
+					</h2>
+					<p class="mt-2 text-sm text-base-content/70">
+						{grounding.retrievedCount} examples found · {grounding.packedCount} used to help structure
+						this draft.
+					</p>
+				</div>
+
+				<div class="flex flex-wrap gap-2">
+					{#if grounding.relevance}
+						<span class="badge badge-outline">{grounding.relevance} relevance</span>
+					{/if}
+					{#if grounding.support}
+						<span class="badge badge-outline">{grounding.support} support</span>
+					{/if}
+				</div>
+
+				{#if grounding.examples?.length}
+					<div>
+						<h3 class="text-sm font-semibold">Examples consulted</h3>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
+							{#each grounding.examples as title}
+								<li>{title}</li>
+							{/each}
+						</ul>
+					</div>
 				{/if}
 			</div>
 		</Card>
