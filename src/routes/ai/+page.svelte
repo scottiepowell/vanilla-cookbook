@@ -41,6 +41,7 @@
 	async function sendPrompt(override = null) {
 		const text = (override ?? prompt).trim()
 		if (!text || loading) return
+		const previousMessages = messages
 		loading = true
 		error = ''
 		messages = [...messages, { role: 'user', text }]
@@ -57,11 +58,15 @@
 			})
 			const result = await response.json()
 			if (!response.ok || result.status !== 'ok') {
+				messages = previousMessages
+				prompt = text
 				error = result.message || 'Cookbook AI could not continue this recipe.'
 				return
 			}
 			applyResult(result)
 		} catch {
+			messages = previousMessages
+			prompt = text
 			error = 'Cookbook AI is temporarily unavailable.'
 		} finally {
 			loading = false

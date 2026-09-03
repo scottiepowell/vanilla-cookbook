@@ -10,6 +10,29 @@ import { rateLimitCheck } from '$lib/server/rateLimit'
 
 const LIVE_MODEL = 'gpt-5.4-nano'
 
+async function requestChange(fetch, url, token, body) {
+	try {
+		const response = await fetch(url, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				'x-ai-operator-token': token
+			},
+			body,
+			signal: AbortSignal.timeout(30_000)
+		})
+		let result = null
+		try {
+			result = await response.json()
+		} catch {
+			// A non-JSON sidecar response is handled as unavailable.
+		}
+		return { response, result }
+	} catch {
+		return { response: null, result: null }
+	}
+}
+
 export async function POST({ request, locals, fetch, params }) {
 	const user = requireAuth(locals)
 	const session = getOwnedRecipeChat(params.chatId, user.userId)
@@ -42,23 +65,37 @@ export async function POST({ request, locals, fetch, params }) {
 	try {
 		const base = env.AI_SIDECAR_URL?.replace(/\/$/, '')
 		if (!base || !env.AI_SIDECAR_OPERATOR_TOKEN) throw new Error('unavailable')
-		const response = await fetch(`${base}/ai/recipe-session/${session.sidecarId}/message`, {
-			method: 'POST',
-			headers: {
-				'content-type': 'application/json',
-				'x-ai-operator-token': env.AI_SIDECAR_OPERATOR_TOKEN
-			},
-			body: JSON.stringify({ text, provider_mode: 'live', model: LIVE_MODEL }),
-			signal: AbortSignal.timeout(30_000)
-		})
-		if (response.status === 404) deleteRecipeChat(params.chatId)
-		const result = await response.json()
-		if (!response.ok)
+		const url = `${base}/ai/recipe-session/${session.sidecarId}/message`
+		const body = JSON.stringify({ text, provider_mode: 'live', model: LIVE_MODEL })
+		let attempt = await requestChange(fetch, url, env.AI_SIDECAR_OPERATOR_TOKEN, body)
+		let retried = false
+		if (
+			!attempt.response ||
+			(attempt.response.status === 503 && attempt.result?.detail?.retryable === true)
+		) {
+			retried = true
+			attempt = await requestChange(fetch, url, env.AI_SIDECAR_OPERATOR_TOKEN, body)
+		}
+		if (!attempt.response)
 			return json(
-				{ status: 'unavailable', message: 'Cookbook AI could not update this recipe.' },
-				{ status: response.status === 404 ? 404 : 503 }
+				{
+					status: 'unavailable',
+					message: 'Cookbook AI is temporarily unavailable after one bounded retry.'
+				},
+				{ status: 503 }
 			)
-		return json(safeRecipeChatResponse(result, params.chatId), {
+		if (attempt.response.status === 404) deleteRecipeChat(params.chatId)
+		if (!attempt.response.ok)
+			return json(
+				{
+					status: 'unavailable',
+					message: retried
+						? 'Cookbook AI could not complete this change after one bounded retry. Your recipe and change count were kept.'
+						: 'Cookbook AI could not update this recipe. Your recipe and change count were kept.'
+				},
+				{ status: attempt.response.status === 404 ? 404 : 503 }
+			)
+		return json(safeRecipeChatResponse(attempt.result, params.chatId), {
 			headers: { 'cache-control': 'no-store' }
 		})
 	} catch {

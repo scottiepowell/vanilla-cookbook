@@ -80,14 +80,12 @@ describe('public recipe chat proxy', () => {
 	})
 
 	it('keeps a chat bound to the core user', async () => {
-		const startFetch = vi
-			.fn()
-			.mockResolvedValue(
-				new Response(JSON.stringify(sidecarResult()), {
-					status: 200,
-					headers: { 'content-type': 'application/json' }
-				})
-			)
+		const startFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(sidecarResult()), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
 		const started = await (
 			await startChat({
 				request: request({ text: 'bean soup' }),
@@ -108,14 +106,12 @@ describe('public recipe chat proxy', () => {
 	})
 
 	it('forwards an owned change with the pinned model', async () => {
-		const startFetch = vi
-			.fn()
-			.mockResolvedValue(
-				new Response(JSON.stringify(sidecarResult()), {
-					status: 200,
-					headers: { 'content-type': 'application/json' }
-				})
-			)
+		const startFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(sidecarResult()), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
 		const started = await (
 			await startChat({
 				request: request({ text: 'bean soup' }),
@@ -145,5 +141,47 @@ describe('public recipe chat proxy', () => {
 			provider_mode: 'live',
 			model: 'gpt-5.4-nano'
 		})
+	})
+
+	it('retries one retryable change failure with the identical request', async () => {
+		const startFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(sidecarResult()), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+		const started = await (
+			await startChat({
+				request: request({ text: 'bean soup' }),
+				locals: { user: { userId: 'retry-owner' } },
+				fetch: startFetch
+			})
+		).json()
+		const messageFetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify(sidecarResult('draft_revised')), {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+
+		const response = await messageChat({
+			request: request({ text: 'add mushrooms' }),
+			locals: { user: { userId: 'retry-owner' } },
+			fetch: messageFetch,
+			params: { chatId: started.chatId }
+		})
+
+		expect(response.status).toBe(200)
+		expect(messageFetch).toHaveBeenCalledTimes(2)
+		expect(messageFetch.mock.calls[1][1].body).toBe(messageFetch.mock.calls[0][1].body)
+		expect((await response.json()).changeCount).toBe(1)
 	})
 })
