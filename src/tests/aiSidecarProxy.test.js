@@ -67,4 +67,58 @@ describe('authenticated AI sidecar proxy', () => {
 		expect(response.status).toBe(413)
 		expect(sidecarFetch).not.toHaveBeenCalled()
 	})
+
+	it('retries one safe transient provider failure and returns the recovered draft', async () => {
+		sidecarFetch.mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					detail: {
+						status: 'unavailable',
+						safe_unavailable_category: 'provider_transient_failure',
+						safe_guidance: 'The AI provider returned a temporary failure.',
+						retryable: true
+					}
+				}),
+				{ status: 503, headers: { 'content-type': 'application/json' } }
+			)
+		)
+
+		const response = await POST({
+			request: request({ text: 'Green chile enchiladas with chicken' }),
+			locals: { user: { userId: 'retry-user' } },
+			fetch: sidecarFetch
+		})
+		const body = await response.json()
+
+		expect(sidecarFetch).toHaveBeenCalledTimes(2)
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({ status: 'ok', model: 'gpt-5.4-nano' })
+	})
+
+	it('does not retry deterministic provider failures', async () => {
+		sidecarFetch.mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					detail: {
+						status: 'unavailable',
+						safe_unavailable_category: 'provider_account_or_quota_unavailable',
+						safe_guidance: 'The AI provider is unavailable because of account or quota limits.',
+						retryable: false
+					}
+				}),
+				{ status: 503, headers: { 'content-type': 'application/json' } }
+			)
+		)
+
+		const response = await POST({
+			request: request({ text: 'Green chile enchiladas with chicken' }),
+			locals: { user: { userId: 'non-retry-user' } },
+			fetch: sidecarFetch
+		})
+		const body = await response.json()
+
+		expect(sidecarFetch).toHaveBeenCalledTimes(1)
+		expect(response.status).toBe(503)
+		expect(body.message).toContain('account or quota')
+	})
 })

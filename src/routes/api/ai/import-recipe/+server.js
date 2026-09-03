@@ -27,6 +27,30 @@ function sidecarConfig() {
 	}
 }
 
+async function requestDraft(fetch, config, body) {
+	try {
+		const response = await fetch(config.url, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				'x-ai-operator-token': config.token
+			},
+			body,
+			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+		})
+
+		let result = null
+		try {
+			result = await response.json()
+		} catch {
+			// A non-JSON upstream response is handled as unavailable below.
+		}
+		return { response, result }
+	} catch {
+		return { response: null, result: null }
+	}
+}
+
 /** @type {import('./$types').RequestHandler} */
 export async function POST({ request, locals, fetch }) {
 	const user = requireAuth(locals)
@@ -72,49 +96,48 @@ export async function POST({ request, locals, fetch }) {
 	const config = sidecarConfig()
 	if (!config) return unavailable()
 
-	try {
-		const response = await fetch(config.url, {
-			method: 'POST',
-			headers: {
-				'content-type': 'application/json',
-				'x-ai-operator-token': config.token
-			},
-			body: JSON.stringify({
-				text,
-				source: typeof payload?.source === 'string' ? payload.source.slice(0, 500) : null,
-				provider_mode: 'live',
-				model: LIVE_MODEL
-			}),
-			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-		})
-
-		let result = null
-		try {
-			result = await response.json()
-		} catch {
-			return unavailable()
-		}
-
-		if (!response.ok) {
-			return json(
-				{
-					status: 'unavailable',
-					message: result?.detail?.safe_guidance || 'Cookbook AI could not structure this recipe.'
-				},
-				{ status: response.status >= 400 && response.status < 500 ? response.status : 503 }
-			)
-		}
-
-		return json(
-			{
-				status: 'ok',
-				draft: result?.draft ?? null,
-				model: result?.model === LIVE_MODEL ? LIVE_MODEL : null,
-				warnings: Array.isArray(result?.warnings) ? result.warnings.slice(0, 10) : []
-			},
-			{ headers: { 'cache-control': 'no-store' } }
-		)
-	} catch {
-		return unavailable()
+	const body = JSON.stringify({
+		text,
+		source: typeof payload?.source === 'string' ? payload.source.slice(0, 500) : null,
+		provider_mode: 'live',
+		model: LIVE_MODEL
+	})
+	let attempt = await requestDraft(fetch, config, body)
+	let retried = false
+	if (
+		!attempt.response ||
+		(attempt.response.status === 503 && attempt.result?.detail?.retryable === true)
+	) {
+		retried = true
+		attempt = await requestDraft(fetch, config, body)
 	}
+
+	if (!attempt.response) {
+		return unavailable('Cookbook AI is temporarily unavailable after one bounded retry.')
+	}
+
+	if (!attempt.response.ok) {
+		const safeMessage = retried
+			? 'Cookbook AI is temporarily unavailable after one bounded retry. Please try again later.'
+			: attempt.result?.detail?.safe_guidance || 'Cookbook AI could not structure this recipe.'
+		return json(
+			{ status: 'unavailable', message: safeMessage },
+			{
+				status:
+					attempt.response.status >= 400 && attempt.response.status < 500
+						? attempt.response.status
+						: 503
+			}
+		)
+	}
+
+	return json(
+		{
+			status: 'ok',
+			draft: attempt.result?.draft ?? null,
+			model: attempt.result?.model === LIVE_MODEL ? LIVE_MODEL : null,
+			warnings: Array.isArray(attempt.result?.warnings) ? attempt.result.warnings.slice(0, 10) : []
+		},
+		{ headers: { 'cache-control': 'no-store' } }
+	)
 }
