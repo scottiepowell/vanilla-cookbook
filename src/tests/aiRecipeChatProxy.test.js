@@ -68,6 +68,9 @@ describe('public recipe chat proxy', () => {
 		expect(body.chatId).not.toBe('private-sidecar-session')
 		expect(body).toMatchObject({ changeCount: 0, maxChanges: 10 })
 		expect(body.grounding).toMatchObject({ retrievedCount: 3, packedCount: 2 })
+		const forwarded = JSON.parse(sidecarFetch.mock.calls[0][1].body)
+		expect(forwarded.request_id).toMatch(/^[0-9a-f-]{36}$/)
+		expect(sidecarFetch.mock.calls[0][1].headers['x-request-id']).toBe(forwarded.request_id)
 		for (const value of [
 			'opaque-chat-token',
 			'private-sidecar-session',
@@ -77,6 +80,67 @@ describe('public recipe chat proxy', () => {
 			'private snippet'
 		])
 			expect(serialized).not.toContain(value)
+	})
+
+	it('retries one retryable initial failure with an identical body and idempotency key', async () => {
+		const sidecarFetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify(sidecarResult()), {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+
+		const response = await startChat({
+			request: request({ text: 'bean soup' }),
+			locals: { user: { userId: 'initial-retry-owner' } },
+			fetch: sidecarFetch
+		})
+
+		expect(response.status).toBe(200)
+		expect(sidecarFetch).toHaveBeenCalledTimes(2)
+		expect(sidecarFetch.mock.calls[1][1].body).toBe(sidecarFetch.mock.calls[0][1].body)
+		expect(sidecarFetch.mock.calls[1][1].headers['x-request-id']).toBe(
+			sidecarFetch.mock.calls[0][1].headers['x-request-id']
+		)
+	})
+
+	it('does not retry a deterministic initial failure', async () => {
+		const sidecarFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ detail: { retryable: false } }), {
+				status: 503,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+
+		const response = await startChat({
+			request: request({ text: 'bean soup' }),
+			locals: { user: { userId: 'initial-no-retry-owner' } },
+			fetch: sidecarFetch
+		})
+
+		expect(response.status).toBe(503)
+		expect(sidecarFetch).toHaveBeenCalledTimes(1)
+	})
+
+	it('limits transport recovery to one initial retry', async () => {
+		const sidecarFetch = vi.fn().mockRejectedValue(new Error('temporary transport failure'))
+
+		const response = await startChat({
+			request: request({ text: 'bean soup' }),
+			locals: { user: { userId: 'initial-transport-owner' } },
+			fetch: sidecarFetch
+		})
+
+		expect(response.status).toBe(503)
+		expect(sidecarFetch).toHaveBeenCalledTimes(2)
 	})
 
 	it('keeps a chat bound to the core user', async () => {
