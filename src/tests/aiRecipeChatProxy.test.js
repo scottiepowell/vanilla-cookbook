@@ -11,8 +11,14 @@ vi.mock('$env/dynamic/private', () => ({
 }))
 
 import { resetRecipeChatStoreForTests } from '../lib/server/aiRecipeChat.js'
+import {
+	explicitNewRecipeRequest,
+	proposedReplacementIdea,
+	replacementConfirmationAnswer
+} from '../lib/aiRecipeChatIntent.js'
 import { POST as startChat } from '../routes/api/ai/recipe-chat/start/+server.js'
 import { POST as messageChat } from '../routes/api/ai/recipe-chat/[chatId]/message/+server.js'
+import { DELETE as discardChat } from '../routes/api/ai/recipe-chat/[chatId]/+server.js'
 
 function request(payload) {
 	return new Request('https://cookbook.roadmaps.link/api/ai/recipe-chat', {
@@ -98,6 +104,92 @@ describe('public recipe chat proxy', () => {
 
 		expect(changes).toBeGreaterThan(-1)
 		expect(retries).toBeGreaterThan(changes)
+	})
+
+	it('parses typed recipe replacement confirmation without treating richer ideas as yes or no', () => {
+		expect(replacementConfirmationAnswer('Yes, I do.')).toBe('confirm')
+		expect(replacementConfirmationAnswer('keep the current recipe')).toBe('keep')
+		expect(replacementConfirmationAnswer('make it chicken and rice instead')).toBeNull()
+	})
+
+	it('extracts an explicit new recipe idea for an immediate restart', () => {
+		expect(
+			explicitNewRecipeRequest('Hey, start a new recipe with rice, chicken, and mushrooms')
+		).toEqual({
+			explicit: true,
+			idea: 'rice, chicken, and mushrooms'
+		})
+		expect(explicitNewRecipeRequest('add mushrooms')).toEqual({ explicit: false, idea: '' })
+	})
+
+	it('extracts a clearer proposed dish from replacement wording', () => {
+		expect(
+			proposedReplacementIdea(
+				'change the pasta to rice and make the dish more like a chicken and rice with mushrooms dish'
+			)
+		).toBe('chicken and rice with mushrooms')
+		expect(proposedReplacementIdea('change the pasta to rice')).toBe('rice recipe')
+		expect(
+			proposedReplacementIdea(
+				"All right let's switch the recipe and I want to do a pasta bake with chicken, rigatoni, and spinach."
+			)
+		).toBe('a pasta bake with chicken, rigatoni, and spinach.')
+		expect(
+			proposedReplacementIdea(
+				"All right let's go with fried rice. With some teriyaki and pork, and saute some vegetables."
+			)
+		).toBe('fried rice. With some teriyaki and pork, and saute some vegetables.')
+	})
+
+	it('discards the old binding before a clean replacement start', async () => {
+		const oldFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(sidecarResult()), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+		const oldChat = await (
+			await startChat({
+				request: request({ text: 'cheese omelet' }),
+				locals: { user: { userId: 'replacement-owner' } },
+				fetch: oldFetch
+			})
+		).json()
+
+		const discarded = await discardChat({
+			locals: { user: { userId: 'replacement-owner' } },
+			params: { chatId: oldChat.chatId }
+		})
+		expect(discarded.status).toBe(200)
+
+		const staleFetch = vi.fn()
+		const staleResponse = await messageChat({
+			request: request({ text: 'add spinach' }),
+			locals: { user: { userId: 'replacement-owner' } },
+			fetch: staleFetch,
+			params: { chatId: oldChat.chatId }
+		})
+		expect(staleResponse.status).toBe(404)
+		expect(staleFetch).not.toHaveBeenCalled()
+
+		const newFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(sidecarResult()), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+		const newChat = await (
+			await startChat({
+				request: request({ text: 'chicken rigatoni spinach pasta bake' }),
+				locals: { user: { userId: 'replacement-owner' } },
+				fetch: newFetch
+			})
+		).json()
+		const forwarded = JSON.parse(newFetch.mock.calls[0][1].body)
+
+		expect(newChat.chatId).not.toBe(oldChat.chatId)
+		expect(forwarded.text).toBe('chicken rigatoni spinach pasta bake')
+		expect(forwarded.text).not.toContain('omelet')
 	})
 
 	it('can recover on the fourth initial attempt with an identical body and idempotency key', async () => {

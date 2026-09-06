@@ -87,7 +87,7 @@ function assistantMessage(state, result) {
 		return text(result?.clarification_question, 300) || 'What details should I use for this recipe?'
 	}
 	if (state === 'new_recipe_confirmation') {
-		return 'That sounds like a different recipe. Do you want to start a new recipe and replace this draft?'
+		return 'That sounds like a different dish. Do you want to start a new recipe and discard the current draft?'
 	}
 	if (state === 'change_limit_reached') {
 		return 'This recipe has reached its limit of ten changes. Start a new recipe to keep working.'

@@ -2,6 +2,11 @@
 	import Button from '$lib/components/ui/Button.svelte'
 	import Card from '$lib/components/ui/Card.svelte'
 	import Textarea from '$lib/components/ui/Form/Textarea.svelte'
+	import {
+		explicitNewRecipeRequest,
+		proposedReplacementIdea,
+		replacementConfirmationAnswer
+	} from '$lib/aiRecipeChatIntent.js'
 
 	let prompt = $state('')
 	let source = $state('')
@@ -32,6 +37,15 @@
 		pendingReplacement = ''
 	}
 
+	async function discardCurrentChat() {
+		if (!chatId) return
+		try {
+			await fetch(`/api/ai/recipe-chat/${chatId}`, { method: 'DELETE' })
+		} catch {
+			// Server state is bounded and expiring; a cleanup failure must not retain the browser draft.
+		}
+	}
+
 	function applyResult(result) {
 		chatId = result.chatId
 		if (result.draft) draft = result.draft
@@ -41,12 +55,41 @@
 		retryCount = Number.isInteger(result.retryCount) ? result.retryCount : 0
 		maxRetries = Number.isInteger(result.maxRetries) ? result.maxRetries : 3
 		messages = [...messages, { role: 'assistant', text: result.assistantMessage }]
-		pendingReplacement = result.replacementSuggested ? messages.at(-2)?.text || '' : ''
+		pendingReplacement = result.replacementSuggested
+			? proposedReplacementIdea(messages.at(-2)?.text || '')
+			: ''
 	}
 
 	async function sendPrompt(override = null) {
 		const text = (override ?? prompt).trim()
 		if (!text || loading) return
+
+		if (chatId && pendingReplacement) {
+			const answer = replacementConfirmationAnswer(text)
+			if (answer === 'confirm') {
+				const idea = pendingReplacement
+				resetChat()
+				await sendPrompt(idea)
+				return
+			}
+			if (answer === 'keep') {
+				prompt = ''
+				keepCurrentRecipe()
+				return
+			}
+		}
+
+		if (chatId) {
+			const command = explicitNewRecipeRequest(text)
+			if (command.explicit) {
+				await discardCurrentChat()
+				resetChat()
+				if (command.idea) await sendPrompt(command.idea)
+				else messages = [{ role: 'assistant', text: 'What new recipe would you like to make?' }]
+				return
+			}
+		}
+
 		const previousMessages = messages
 		loading = true
 		error = ''
@@ -83,6 +126,7 @@
 
 	async function startSuggestedRecipe() {
 		const idea = pendingReplacement
+		await discardCurrentChat()
 		resetChat()
 		await sendPrompt(idea)
 	}
@@ -198,10 +242,16 @@
 	<Card bordered={true}>
 		<div class="flex flex-col gap-4">
 			<Textarea
-				label={chatId ? 'Ask for a recipe change' : 'What recipe would you like to make?'}
-				placeholder={chatId
-					? 'Try: Add mushrooms, make it vegetarian, or serve six...'
-					: 'Try: Green chile enchiladas with chicken...'}
+				label={pendingReplacement
+					? 'Start a new recipe?'
+					: chatId
+						? 'Ask for a recipe change'
+						: 'What recipe would you like to make?'}
+				placeholder={pendingReplacement
+					? 'Type yes, no, or describe the new recipe more clearly...'
+					: chatId
+						? 'Try: Add mushrooms, make it vegetarian, or serve six...'
+						: 'Try: Green chile enchiladas with chicken...'}
 				rows={chatId ? 4 : 8}
 				bind:value={prompt}
 			/>
@@ -224,8 +274,7 @@
 						onclick={() => sendPrompt()}
 						disabled={loading ||
 							!prompt.trim() ||
-							changeCount >= maxChanges ||
-							!!pendingReplacement}
+							(changeCount >= maxChanges && !pendingReplacement)}
 					>
 						{loading ? 'Thinking…' : chatId ? 'Send change' : 'Create recipe'}
 					</Button>
