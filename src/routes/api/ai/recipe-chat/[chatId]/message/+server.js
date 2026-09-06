@@ -4,13 +4,18 @@ import { requireAuth } from '$lib/server/authHelpers'
 import {
 	deleteRecipeChat,
 	getOwnedRecipeChat,
+	MAX_BOUNDED_RETRIES,
 	safeRecipeChatResponse
 } from '$lib/server/aiRecipeChat'
 import { rateLimitCheck } from '$lib/server/rateLimit'
 
 const LIVE_MODEL = 'gpt-5.4-nano'
+const CHANGE_TOTAL_TIMEOUT_MS = 90_000
+const CHANGE_ATTEMPT_TIMEOUT_MS = 22_000
 
-async function requestChange(fetch, url, token, body) {
+async function requestChange(fetch, url, token, body, deadline) {
+	const remaining = deadline - Date.now()
+	if (remaining <= 0) return { response: null, result: null }
 	try {
 		const response = await fetch(url, {
 			method: 'POST',
@@ -19,7 +24,7 @@ async function requestChange(fetch, url, token, body) {
 				'x-ai-operator-token': token
 			},
 			body,
-			signal: AbortSignal.timeout(30_000)
+			signal: AbortSignal.timeout(Math.max(1, Math.min(CHANGE_ATTEMPT_TIMEOUT_MS, remaining)))
 		})
 		let result = null
 		try {
@@ -67,20 +72,26 @@ export async function POST({ request, locals, fetch, params }) {
 		if (!base || !env.AI_SIDECAR_OPERATOR_TOKEN) throw new Error('unavailable')
 		const url = `${base}/ai/recipe-session/${session.sidecarId}/message`
 		const body = JSON.stringify({ text, provider_mode: 'live', model: LIVE_MODEL })
-		let attempt = await requestChange(fetch, url, env.AI_SIDECAR_OPERATOR_TOKEN, body)
-		let retried = false
-		if (
-			!attempt.response ||
-			(attempt.response.status === 503 && attempt.result?.detail?.retryable === true)
-		) {
-			retried = true
-			attempt = await requestChange(fetch, url, env.AI_SIDECAR_OPERATOR_TOKEN, body)
-		}
+		const deadline = Date.now() + CHANGE_TOTAL_TIMEOUT_MS
+		let retryCount = 0
+		let attempt
+		do {
+			attempt = await requestChange(fetch, url, env.AI_SIDECAR_OPERATOR_TOKEN, body, deadline)
+			if (
+				attempt.response &&
+				!(attempt.response.status === 503 && attempt.result?.detail?.retryable === true)
+			)
+				break
+			if (retryCount >= MAX_BOUNDED_RETRIES) break
+			retryCount += 1
+		} while (true)
 		if (!attempt.response)
 			return json(
 				{
 					status: 'unavailable',
-					message: 'Cookbook AI is temporarily unavailable after one bounded retry.'
+					message: 'Cookbook AI is temporarily unavailable after three bounded retries.',
+					retryCount,
+					maxRetries: MAX_BOUNDED_RETRIES
 				},
 				{ status: 503 }
 			)
@@ -89,13 +100,16 @@ export async function POST({ request, locals, fetch, params }) {
 			return json(
 				{
 					status: 'unavailable',
-					message: retried
-						? 'Cookbook AI could not complete this change after one bounded retry. Your recipe and change count were kept.'
-						: 'Cookbook AI could not update this recipe. Your recipe and change count were kept.'
+					message:
+						retryCount > 0
+							? 'Cookbook AI could not complete this change after bounded retries. Your recipe and change count were kept.'
+							: 'Cookbook AI could not update this recipe. Your recipe and change count were kept.',
+					retryCount,
+					maxRetries: MAX_BOUNDED_RETRIES
 				},
 				{ status: attempt.response.status === 404 ? 404 : 503 }
 			)
-		return json(safeRecipeChatResponse(attempt.result, params.chatId), {
+		return json(safeRecipeChatResponse(attempt.result, params.chatId, retryCount), {
 			headers: { 'cache-control': 'no-store' }
 		})
 	} catch {

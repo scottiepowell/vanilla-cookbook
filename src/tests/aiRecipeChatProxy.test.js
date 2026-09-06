@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 vi.mock('$env/dynamic/private', () => ({
 	env: {
@@ -66,7 +68,12 @@ describe('public recipe chat proxy', () => {
 		expect(response.status).toBe(200)
 		expect(body.chatId).toBeTruthy()
 		expect(body.chatId).not.toBe('private-sidecar-session')
-		expect(body).toMatchObject({ changeCount: 0, maxChanges: 10 })
+		expect(body).toMatchObject({
+			changeCount: 0,
+			maxChanges: 10,
+			retryCount: 0,
+			maxRetries: 3
+		})
 		expect(body.grounding).toMatchObject({ retrievedCount: 3, packedCount: 2 })
 		const forwarded = JSON.parse(sidecarFetch.mock.calls[0][1].body)
 		expect(forwarded.request_id).toMatch(/^[0-9a-f-]{36}$/)
@@ -82,9 +89,38 @@ describe('public recipe chat proxy', () => {
 			expect(serialized).not.toContain(value)
 	})
 
-	it('retries one retryable initial failure with an identical body and idempotency key', async () => {
+	it('renders latest bounded retry usage directly below the change count', () => {
+		const page = readFileSync(join(process.cwd(), 'src/routes/ai/+page.svelte'), 'utf8')
+		const changes = page.indexOf('{changeCount} of {maxChanges} changes used')
+		const retries = page.indexOf(
+			'{retryCount} of {maxRetries} bounded retries used for the latest request'
+		)
+
+		expect(changes).toBeGreaterThan(-1)
+		expect(retries).toBeGreaterThan(changes)
+	})
+
+	it('can recover on the fourth initial attempt with an identical body and idempotency key', async () => {
 		const sidecarFetch = vi
 			.fn()
+			.mockResolvedValue(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
 			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ detail: { retryable: true } }), {
 					status: 503,
@@ -105,11 +141,12 @@ describe('public recipe chat proxy', () => {
 		})
 
 		expect(response.status).toBe(200)
-		expect(sidecarFetch).toHaveBeenCalledTimes(2)
-		expect(sidecarFetch.mock.calls[1][1].body).toBe(sidecarFetch.mock.calls[0][1].body)
-		expect(sidecarFetch.mock.calls[1][1].headers['x-request-id']).toBe(
-			sidecarFetch.mock.calls[0][1].headers['x-request-id']
-		)
+		expect(sidecarFetch).toHaveBeenCalledTimes(4)
+		const bodies = sidecarFetch.mock.calls.map((call) => call[1].body)
+		const requestIds = sidecarFetch.mock.calls.map((call) => call[1].headers['x-request-id'])
+		expect(new Set(bodies).size).toBe(1)
+		expect(new Set(requestIds).size).toBe(1)
+		expect((await response.json()).retryCount).toBe(3)
 	})
 
 	it('does not retry a deterministic initial failure', async () => {
@@ -130,7 +167,7 @@ describe('public recipe chat proxy', () => {
 		expect(sidecarFetch).toHaveBeenCalledTimes(1)
 	})
 
-	it('limits transport recovery to one initial retry', async () => {
+	it('limits transport recovery to three initial retries', async () => {
 		const sidecarFetch = vi.fn().mockRejectedValue(new Error('temporary transport failure'))
 
 		const response = await startChat({
@@ -140,7 +177,8 @@ describe('public recipe chat proxy', () => {
 		})
 
 		expect(response.status).toBe(503)
-		expect(sidecarFetch).toHaveBeenCalledTimes(2)
+		expect(sidecarFetch).toHaveBeenCalledTimes(4)
+		expect(await response.json()).toMatchObject({ retryCount: 3, maxRetries: 3 })
 	})
 
 	it('keeps a chat bound to the core user', async () => {
@@ -207,7 +245,7 @@ describe('public recipe chat proxy', () => {
 		})
 	})
 
-	it('retries one retryable change failure with the identical request', async () => {
+	it('can recover on the fourth retryable change attempt with the identical request', async () => {
 		const startFetch = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify(sidecarResult()), {
 				status: 200,
@@ -223,6 +261,24 @@ describe('public recipe chat proxy', () => {
 		).json()
 		const messageFetch = vi
 			.fn()
+			.mockResolvedValue(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
 			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ detail: { retryable: true } }), {
 					status: 503,
@@ -244,8 +300,10 @@ describe('public recipe chat proxy', () => {
 		})
 
 		expect(response.status).toBe(200)
-		expect(messageFetch).toHaveBeenCalledTimes(2)
-		expect(messageFetch.mock.calls[1][1].body).toBe(messageFetch.mock.calls[0][1].body)
-		expect((await response.json()).changeCount).toBe(1)
+		expect(messageFetch).toHaveBeenCalledTimes(4)
+		expect(new Set(messageFetch.mock.calls.map((call) => call[1].body)).size).toBe(1)
+		const body = await response.json()
+		expect(body.changeCount).toBe(1)
+		expect(body.retryCount).toBe(3)
 	})
 })

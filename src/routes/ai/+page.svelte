@@ -13,6 +13,8 @@
 	let grounding = $state(null)
 	let changeCount = $state(0)
 	let maxChanges = $state(10)
+	let retryCount = $state(0)
+	let maxRetries = $state(3)
 	let pendingReplacement = $state('')
 
 	function resetChat() {
@@ -25,6 +27,8 @@
 		grounding = null
 		changeCount = 0
 		maxChanges = 10
+		retryCount = 0
+		maxRetries = 3
 		pendingReplacement = ''
 	}
 
@@ -34,6 +38,8 @@
 		if (result.grounding) grounding = result.grounding
 		changeCount = result.changeCount || 0
 		maxChanges = result.maxChanges || 10
+		retryCount = Number.isInteger(result.retryCount) ? result.retryCount : 0
+		maxRetries = Number.isInteger(result.maxRetries) ? result.maxRetries : 3
 		messages = [...messages, { role: 'assistant', text: result.assistantMessage }]
 		pendingReplacement = result.replacementSuggested ? messages.at(-2)?.text || '' : ''
 	}
@@ -58,6 +64,8 @@
 			})
 			const result = await response.json()
 			if (!response.ok || result.status !== 'ok') {
+				retryCount = Number.isInteger(result.retryCount) ? result.retryCount : 0
+				maxRetries = Number.isInteger(result.maxRetries) ? result.maxRetries : 3
 				messages = previousMessages
 				prompt = text
 				error = result.message || 'Cookbook AI could not continue this recipe.'
@@ -205,7 +213,10 @@
 			{/if}
 			<div class="flex items-center justify-between gap-3">
 				<div class="text-sm text-base-content/60">
-					{#if chatId}{changeCount} of {maxChanges} changes used{/if}
+					{#if chatId}
+						<p>{changeCount} of {maxChanges} changes used</p>
+						<p>{retryCount} of {maxRetries} bounded retries used for the latest request</p>
+					{/if}
 				</div>
 				<div class="flex gap-2">
 					{#if chatId}<Button onclick={resetChat} style="outline">Start over</Button>{/if}

@@ -2,11 +2,15 @@ import { env } from '$env/dynamic/private'
 import { json } from '@sveltejs/kit'
 import { randomUUID } from 'node:crypto'
 import { requireAuth } from '$lib/server/authHelpers'
-import { createOwnedRecipeChat, safeRecipeChatResponse } from '$lib/server/aiRecipeChat'
+import {
+	createOwnedRecipeChat,
+	MAX_BOUNDED_RETRIES,
+	safeRecipeChatResponse
+} from '$lib/server/aiRecipeChat'
 import { rateLimitCheck } from '$lib/server/rateLimit'
 
 const LIVE_MODEL = 'gpt-5.4-nano'
-const START_TOTAL_TIMEOUT_MS = 45_000
+const START_TOTAL_TIMEOUT_MS = 90_000
 const START_ATTEMPT_TIMEOUT_MS = 22_000
 
 function config() {
@@ -97,25 +101,12 @@ export async function POST({ request, locals, fetch }) {
 		request_id: requestId
 	})
 	let attempts = 0
-	let retried = false
+	let retryCount = 0
 	let sidecarDurationMs = 0
 	let outcome = 'unavailable'
 	try {
-		let attempt = await requestStart(
-			fetch,
-			`${active.url}/ai/recipe-session/start`,
-			active.token,
-			body,
-			requestId,
-			deadline
-		)
-		attempts += 1
-		sidecarDurationMs += attempt.durationMs
-		if (
-			!attempt.response ||
-			(attempt.response.status === 503 && attempt.result?.detail?.retryable === true)
-		) {
-			retried = true
+		let attempt
+		do {
 			attempt = await requestStart(
 				fetch,
 				`${active.url}/ai/recipe-session/start`,
@@ -126,12 +117,21 @@ export async function POST({ request, locals, fetch }) {
 			)
 			attempts += 1
 			sidecarDurationMs += attempt.durationMs
-		}
+			if (
+				attempt.response &&
+				!(attempt.response.status === 503 && attempt.result?.detail?.retryable === true)
+			)
+				break
+			if (retryCount >= MAX_BOUNDED_RETRIES) break
+			retryCount += 1
+		} while (true)
 		if (!attempt.response)
 			return json(
 				{
 					status: 'unavailable',
-					message: 'Cookbook AI is temporarily unavailable after one bounded retry.'
+					message: 'Cookbook AI is temporarily unavailable after three bounded retries.',
+					retryCount,
+					maxRetries: MAX_BOUNDED_RETRIES
 				},
 				{ status: 503 }
 			)
@@ -139,15 +139,18 @@ export async function POST({ request, locals, fetch }) {
 			return json(
 				{
 					status: 'unavailable',
-					message: retried
-						? 'Cookbook AI could not start this recipe after one bounded retry.'
-						: 'Cookbook AI could not start this recipe.'
+					message:
+						retryCount > 0
+							? 'Cookbook AI could not start this recipe after bounded retries.'
+							: 'Cookbook AI could not start this recipe.',
+					retryCount,
+					maxRetries: MAX_BOUNDED_RETRIES
 				},
 				{ status: 503 }
 			)
 		const chatId = createOwnedRecipeChat(user.userId, attempt.result.interaction_id)
 		outcome = 'ok'
-		return json(safeRecipeChatResponse(attempt.result, chatId), {
+		return json(safeRecipeChatResponse(attempt.result, chatId, retryCount), {
 			headers: { 'cache-control': 'no-store' }
 		})
 	} catch {
@@ -159,7 +162,7 @@ export async function POST({ request, locals, fetch }) {
 		logStartOutcome({
 			requestId,
 			attempts,
-			retried,
+			retried: retryCount > 0,
 			status: outcome,
 			sidecarDurationMs,
 			totalDurationMs: Date.now() - totalStarted

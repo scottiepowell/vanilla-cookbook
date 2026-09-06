@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 export const MAX_RECIPE_CHANGES = 10
+export const MAX_BOUNDED_RETRIES = 3
 const SESSION_TTL_MS = 60 * 60_000
 const MAX_SESSIONS = 512
 const sessions = new Map()
@@ -101,7 +102,7 @@ function assistantMessage(state, result) {
 	return 'I updated the recipe. You can request another change below.'
 }
 
-export function safeRecipeChatResponse(result, chatId) {
+export function safeRecipeChatResponse(result, chatId, retryCount = 0) {
 	const state = text(result?.response_state, 60) || 'unavailable'
 	return {
 		status: 'ok',
@@ -112,6 +113,8 @@ export function safeRecipeChatResponse(result, chatId) {
 		grounding: safeGrounding(result),
 		changeCount: count(result?.revision_count),
 		maxChanges: MAX_RECIPE_CHANGES,
+		retryCount: count(retryCount, MAX_BOUNDED_RETRIES),
+		maxRetries: MAX_BOUNDED_RETRIES,
 		replacementSuggested: state === 'new_recipe_confirmation'
 	}
 }
