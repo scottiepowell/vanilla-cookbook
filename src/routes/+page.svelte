@@ -75,7 +75,7 @@
 {:else if rows.length === 0}
 	<div class="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-base-content/50">
 		<p class="text-xl">{$t('home.empty')}</p>
-		<a href="/recipe/new" class="btn btn-primary">{$t('home.addFirst')}</a>
+		<a href="/ai" class="btn btn-primary">{$t('home.addFirst')}</a>
 	</div>
 {:else}
 	<div class="flex flex-col gap-10">

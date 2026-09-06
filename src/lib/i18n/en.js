@@ -68,7 +68,7 @@ export default {
 		haveAccount: 'Already have an account?',
 		registrationDisabled:
 			'New account sign-ups are disabled. You can still sign in with an existing account.',
-		seedAccount: 'Seed my account with 3 example recipes',
+		seedAccount: 'Seed my account with 5 example recipes',
 		continueWithGoogle: 'Continue with Google',
 		continueWithGitHub: 'Continue with GitHub',
 		continueWithOidc: 'Continue with {name}',
@@ -666,7 +666,7 @@ export default {
 			adminRights: 'User has admin rights.',
 			standardRights: 'User has standard rights.',
 			seedRecipes: 'Seed Recipes',
-			seedYes: 'Add three sample recipes to this account.',
+			seedYes: 'Add five sample recipes to this account.',
 			seedNo: 'Do not add sample recipes.',
 			editTitle: 'Edit User',
 			createTitle: 'Create User',

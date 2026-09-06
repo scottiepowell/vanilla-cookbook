@@ -143,13 +143,16 @@
 <svelte:head><title>AI Recipe Chat</title></svelte:head>
 
 <div class="mx-auto flex max-w-4xl flex-col gap-5">
-	<div>
-		<p class="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Cookbook AI</p>
-		<h1 class="mt-2 text-3xl font-bold">Build a recipe together</h1>
-		<p class="mt-2 text-base-content/70">
-			Start with an idea, then ask for ingredient, serving, method, or instruction changes. Each
-			recipe allows up to ten changes and nothing is saved automatically.
-		</p>
+	<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+		<div>
+			<p class="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Cookbook AI</p>
+			<h1 class="mt-2 text-3xl font-bold">Add a recipe</h1>
+			<p class="mt-2 text-base-content/70">
+				Build a draft with AI, then refine ingredients, servings, methods, or instructions. Each
+				recipe allows up to ten changes and nothing is saved automatically.
+			</p>
+		</div>
+		<a href="/recipe/new" class="btn btn-outline btn-primary shrink-0">Manual entry</a>
 	</div>
 
 	{#if messages.length}

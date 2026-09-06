@@ -1,8 +1,6 @@
 import * as fsPromise from 'fs/promises'
 import path from 'path'
 
-import { createRecipePhotoEntry } from '$lib/utils/api.js'
-import { processImage } from '$lib/utils/image/imageBackend'
 import { recipes } from '$lib/data/import/paprikaRecipes'
 
 function resolveSqlitePath() {
@@ -68,10 +66,27 @@ export async function dbSeeded(prismaClient) {
  * @function
  * @param {string} adminUserId - The ID of the admin user to associate the recipes with.
  * @param {PrismaClient} prismaClient - The Prisma client instance used for database operations.
+ * @param {{processPhotos?: boolean}} options - Optional seed behavior.
+ * @returns {Promise<{created: number, skipped: number, failed: number}>} Safe seed counts.
  */
-export async function seedRecipes(adminUserId, prismaClient) {
+export async function seedRecipes(adminUserId, prismaClient, { processPhotos = true } = {}) {
+	const result = { created: 0, skipped: 0, failed: 0 }
+
 	for (const recipe of recipes) {
 		try {
+			const existingRecipe = await prismaClient.recipe.findFirst({
+				where: {
+					userId: adminUserId,
+					name: recipe.name,
+					source: recipe.source
+				},
+				select: { uid: true }
+			})
+			if (existingRecipe) {
+				result.skipped += 1
+				continue
+			}
+
 			// Create the recipe record in the DB.
 			const recipeRecord = await prismaClient.recipe.create({
 				data: {
@@ -107,7 +122,13 @@ export async function seedRecipes(adminUserId, prismaClient) {
 			})
 
 			// Loop through each photo in the recipe's photos array.
-			if (recipe.photos && recipe.photos.length > 0) {
+			result.created += 1
+
+			if (processPhotos && recipe.photos && recipe.photos.length > 0) {
+				const [{ createRecipePhotoEntry }, { processImage }] = await Promise.all([
+					import('$lib/utils/api.js'),
+					import('$lib/utils/image/imageBackend')
+				])
 				for (const photo of recipe.photos) {
 					// Use the photo's id and fileType to form the file name.
 					const photoId = photo.id
@@ -152,7 +173,10 @@ export async function seedRecipes(adminUserId, prismaClient) {
 				}
 			}
 		} catch (error) {
+			result.failed += 1
 			console.error('Error seeding recipe:', recipe.name, error)
 		}
 	}
+
+	return result
 }

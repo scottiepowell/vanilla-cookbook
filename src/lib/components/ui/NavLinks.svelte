@@ -6,7 +6,6 @@
 	import Theme from '$lib/components/svg/Theme.svelte'
 	import Settings from '$lib/components/svg/Settings.svelte'
 	import List from '$lib/components/svg/List.svelte'
-	import Star from '$lib/components/svg/Star.svelte'
 	import Button from '$lib/components/ui/Button.svelte'
 	import { t } from '$lib/stores/locale.js'
 
@@ -45,13 +44,8 @@
 			>
 		</li>
 		<li>
-			<a href="/recipe/new" class="flex items-center gap-2 text-primary"
-				><New width="20px" /><span>{$t('nav.newRecipe')}</span></a
-			>
-		</li>
-		<li>
 			<a href="/ai" class="flex items-center gap-2 text-primary"
-				><Star width="20px" /><span>AI recipe assistant</span></a
+				><New width="20px" /><span>{$t('nav.newRecipe')}</span></a
 			>
 		</li>
 		<li>
@@ -104,15 +98,8 @@
 			>
 				<List width="25px" />
 			</a>
-			<a
-				href="/recipe/new"
-				class="btn btn-ghost btn-circle text-primary"
-				aria-label={$t('nav.newRecipe')}
-			>
+			<a href="/ai" class="btn btn-ghost btn-circle text-primary" aria-label={$t('nav.newRecipe')}>
 				<New width="25px" />
-			</a>
-			<a href="/ai" class="btn btn-ghost btn-circle text-primary" aria-label="AI recipe assistant">
-				<Star width="25px" />
 			</a>
 			<a
 				href={`/user/${user.userId}/shopping`}
