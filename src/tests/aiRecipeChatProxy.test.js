@@ -12,6 +12,7 @@ vi.mock('$env/dynamic/private', () => ({
 
 import { resetRecipeChatStoreForTests } from '../lib/server/aiRecipeChat.js'
 import {
+	cleanAiPrompt,
 	explicitNewRecipeRequest,
 	proposedReplacementIdea,
 	replacementConfirmationAnswer
@@ -78,7 +79,7 @@ describe('public recipe chat proxy', () => {
 			changeCount: 0,
 			maxChanges: 10,
 			retryCount: 0,
-			maxRetries: 3
+			maxRetries: 5
 		})
 		expect(body.grounding).toMatchObject({ retrievedCount: 3, packedCount: 2 })
 		const forwarded = JSON.parse(sidecarFetch.mock.calls[0][1].body)
@@ -104,6 +105,30 @@ describe('public recipe chat proxy', () => {
 
 		expect(changes).toBeGreaterThan(-1)
 		expect(retries).toBeGreaterThan(changes)
+	})
+
+	it('treats empty, whitespace, and invisible-only browser prompts as empty', () => {
+		expect(cleanAiPrompt('')).toBe('')
+		expect(cleanAiPrompt('  \r\n\t ')).toBe('')
+		expect(cleanAiPrompt('\u200B\u200D\u2060\uFEFF')).toBe('')
+		expect(cleanAiPrompt('  add mushrooms  ')).toBe('add mushrooms')
+	})
+
+	it('rejects an empty initial prompt before any sidecar call or retry', async () => {
+		const sidecarFetch = vi.fn()
+		const response = await startChat({
+			request: request({ text: ' \u200B ' }),
+			locals: { user: { userId: 'empty-start-owner' } },
+			fetch: sidecarFetch
+		})
+
+		expect(response.status).toBe(400)
+		expect(sidecarFetch).not.toHaveBeenCalled()
+		expect(await response.json()).toMatchObject({
+			status: 'invalid',
+			retryCount: 0,
+			maxRetries: 5
+		})
 	})
 
 	it('parses typed recipe replacement confirmation without treating richer ideas as yes or no', () => {
@@ -192,10 +217,22 @@ describe('public recipe chat proxy', () => {
 		expect(forwarded.text).not.toContain('omelet')
 	})
 
-	it('can recover on the fourth initial attempt with an identical body and idempotency key', async () => {
+	it('can recover on the sixth initial attempt with an identical body and idempotency key', async () => {
 		const sidecarFetch = vi
 			.fn()
 			.mockResolvedValue(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ detail: { retryable: true } }), {
 					status: 503,
 					headers: { 'content-type': 'application/json' }
@@ -233,12 +270,12 @@ describe('public recipe chat proxy', () => {
 		})
 
 		expect(response.status).toBe(200)
-		expect(sidecarFetch).toHaveBeenCalledTimes(4)
+		expect(sidecarFetch).toHaveBeenCalledTimes(6)
 		const bodies = sidecarFetch.mock.calls.map((call) => call[1].body)
 		const requestIds = sidecarFetch.mock.calls.map((call) => call[1].headers['x-request-id'])
 		expect(new Set(bodies).size).toBe(1)
 		expect(new Set(requestIds).size).toBe(1)
-		expect((await response.json()).retryCount).toBe(3)
+		expect((await response.json()).retryCount).toBe(5)
 	})
 
 	it('does not retry a deterministic initial failure', async () => {
@@ -259,7 +296,7 @@ describe('public recipe chat proxy', () => {
 		expect(sidecarFetch).toHaveBeenCalledTimes(1)
 	})
 
-	it('limits transport recovery to three initial retries', async () => {
+	it('limits transport recovery to five initial retries', async () => {
 		const sidecarFetch = vi.fn().mockRejectedValue(new Error('temporary transport failure'))
 
 		const response = await startChat({
@@ -269,8 +306,8 @@ describe('public recipe chat proxy', () => {
 		})
 
 		expect(response.status).toBe(503)
-		expect(sidecarFetch).toHaveBeenCalledTimes(4)
-		expect(await response.json()).toMatchObject({ retryCount: 3, maxRetries: 3 })
+		expect(sidecarFetch).toHaveBeenCalledTimes(6)
+		expect(await response.json()).toMatchObject({ retryCount: 5, maxRetries: 5 })
 	})
 
 	it('keeps a chat bound to the core user', async () => {
@@ -337,7 +374,38 @@ describe('public recipe chat proxy', () => {
 		})
 	})
 
-	it('can recover on the fourth retryable change attempt with the identical request', async () => {
+	it('rejects an empty follow-up before any sidecar call or retry', async () => {
+		const startFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(sidecarResult()), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+		const started = await (
+			await startChat({
+				request: request({ text: 'bean soup' }),
+				locals: { user: { userId: 'empty-change-owner' } },
+				fetch: startFetch
+			})
+		).json()
+		const messageFetch = vi.fn()
+		const response = await messageChat({
+			request: request({ text: ' \uFEFF ' }),
+			locals: { user: { userId: 'empty-change-owner' } },
+			fetch: messageFetch,
+			params: { chatId: started.chatId }
+		})
+
+		expect(response.status).toBe(400)
+		expect(messageFetch).not.toHaveBeenCalled()
+		expect(await response.json()).toMatchObject({
+			status: 'invalid',
+			retryCount: 0,
+			maxRetries: 5
+		})
+	})
+
+	it('can recover on the sixth retryable change attempt with the identical request', async () => {
 		const startFetch = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify(sidecarResult()), {
 				status: 200,
@@ -378,6 +446,18 @@ describe('public recipe chat proxy', () => {
 				})
 			)
 			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ detail: { retryable: true } }), {
+					status: 503,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+			.mockResolvedValueOnce(
 				new Response(JSON.stringify(sidecarResult('draft_revised')), {
 					status: 200,
 					headers: { 'content-type': 'application/json' }
@@ -392,10 +472,10 @@ describe('public recipe chat proxy', () => {
 		})
 
 		expect(response.status).toBe(200)
-		expect(messageFetch).toHaveBeenCalledTimes(4)
+		expect(messageFetch).toHaveBeenCalledTimes(6)
 		expect(new Set(messageFetch.mock.calls.map((call) => call[1].body)).size).toBe(1)
 		const body = await response.json()
 		expect(body.changeCount).toBe(1)
-		expect(body.retryCount).toBe(3)
+		expect(body.retryCount).toBe(5)
 	})
 })

@@ -6,6 +6,7 @@
 	import Textarea from '$lib/components/ui/Form/Textarea.svelte'
 	import { createRecipe } from '$lib/utils/crud.js'
 	import {
+		cleanAiPrompt,
 		explicitNewRecipeRequest,
 		proposedReplacementIdea,
 		replacementConfirmationAnswer
@@ -22,7 +23,7 @@
 	let changeCount = $state(0)
 	let maxChanges = $state(10)
 	let retryCount = $state(0)
-	let maxRetries = $state(3)
+	let maxRetries = $state(5)
 	let pendingReplacement = $state('')
 	let saving = $state(false)
 	let { data } = $props()
@@ -38,7 +39,7 @@
 		changeCount = 0
 		maxChanges = 10
 		retryCount = 0
-		maxRetries = 3
+		maxRetries = 5
 		pendingReplacement = ''
 	}
 
@@ -58,7 +59,7 @@
 		changeCount = result.changeCount || 0
 		maxChanges = result.maxChanges || 10
 		retryCount = Number.isInteger(result.retryCount) ? result.retryCount : 0
-		maxRetries = Number.isInteger(result.maxRetries) ? result.maxRetries : 3
+		maxRetries = Number.isInteger(result.maxRetries) ? result.maxRetries : 5
 		messages = [...messages, { role: 'assistant', text: result.assistantMessage }]
 		pendingReplacement = result.replacementSuggested
 			? proposedReplacementIdea(messages.at(-2)?.text || '')
@@ -66,8 +67,14 @@
 	}
 
 	async function sendPrompt(override = null) {
-		const text = (override ?? prompt).trim()
-		if (!text || loading) return
+		const text = cleanAiPrompt(override ?? prompt)
+		if (loading) return
+		if (!text) {
+			error = chatId
+				? 'Enter a recipe change before sending.'
+				: 'Enter a recipe idea before sending.'
+			return
+		}
 
 		if (chatId && pendingReplacement) {
 			const answer = replacementConfirmationAnswer(text)
@@ -113,7 +120,7 @@
 			const result = await response.json()
 			if (!response.ok || result.status !== 'ok') {
 				retryCount = Number.isInteger(result.retryCount) ? result.retryCount : 0
-				maxRetries = Number.isInteger(result.maxRetries) ? result.maxRetries : 3
+				maxRetries = Number.isInteger(result.maxRetries) ? result.maxRetries : 5
 				messages = previousMessages
 				prompt = text
 				error = result.message || 'Cookbook AI could not continue this recipe.'
@@ -318,7 +325,7 @@
 					<Button
 						onclick={() => sendPrompt()}
 						disabled={loading ||
-							!prompt.trim() ||
+							!cleanAiPrompt(prompt) ||
 							(changeCount >= maxChanges && !pendingReplacement)}
 					>
 						{loading ? 'Thinking…' : chatId ? 'Send change' : 'Create recipe'}

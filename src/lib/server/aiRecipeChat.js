@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 export const MAX_RECIPE_CHANGES = 10
-export const MAX_BOUNDED_RETRIES = 3
+export const MAX_BOUNDED_RETRIES = 5
 const SESSION_TTL_MS = 60 * 60_000
 const MAX_SESSIONS = 512
 const sessions = new Map()

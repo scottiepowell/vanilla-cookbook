@@ -8,9 +8,10 @@ import {
 	safeRecipeChatResponse
 } from '$lib/server/aiRecipeChat'
 import { rateLimitCheck } from '$lib/server/rateLimit'
+import { cleanAiPrompt } from '$lib/aiRecipeChatIntent'
 
 const LIVE_MODEL = 'gpt-5.4-nano'
-const CHANGE_TOTAL_TIMEOUT_MS = 90_000
+const CHANGE_TOTAL_TIMEOUT_MS = 135_000
 const CHANGE_ATTEMPT_TIMEOUT_MS = 22_000
 
 async function requestChange(fetch, url, token, body, deadline) {
@@ -55,10 +56,15 @@ export async function POST({ request, locals, fetch, params }) {
 			{ status: 400 }
 		)
 	}
-	const text = typeof payload?.text === 'string' ? payload.text.trim() : ''
+	const text = cleanAiPrompt(payload?.text)
 	if (!text || text.length > 2_000)
 		return json(
-			{ status: 'invalid', message: 'Enter a change of 2,000 characters or fewer.' },
+			{
+				status: 'invalid',
+				message: 'Enter a change of 2,000 characters or fewer.',
+				retryCount: 0,
+				maxRetries: MAX_BOUNDED_RETRIES
+			},
 			{ status: 400 }
 		)
 	if (!rateLimitCheck(`ai:chat:message:${user.userId}`, { limit: 12, windowMs: 15 * 60_000 }).ok)
@@ -89,7 +95,7 @@ export async function POST({ request, locals, fetch, params }) {
 			return json(
 				{
 					status: 'unavailable',
-					message: 'Cookbook AI is temporarily unavailable after three bounded retries.',
+					message: `Cookbook AI is temporarily unavailable after ${MAX_BOUNDED_RETRIES} bounded retries.`,
 					retryCount,
 					maxRetries: MAX_BOUNDED_RETRIES
 				},

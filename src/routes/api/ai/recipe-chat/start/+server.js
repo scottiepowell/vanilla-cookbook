@@ -8,9 +8,10 @@ import {
 	safeRecipeChatResponse
 } from '$lib/server/aiRecipeChat'
 import { rateLimitCheck } from '$lib/server/rateLimit'
+import { cleanAiPrompt } from '$lib/aiRecipeChatIntent'
 
 const LIVE_MODEL = 'gpt-5.4-nano'
-const START_TOTAL_TIMEOUT_MS = 90_000
+const START_TOTAL_TIMEOUT_MS = 135_000
 const START_ATTEMPT_TIMEOUT_MS = 22_000
 
 function config() {
@@ -69,21 +70,26 @@ function logStartOutcome({
 
 export async function POST({ request, locals, fetch }) {
 	const user = requireAuth(locals)
-	const active = config()
-	if (!active)
-		return json({ status: 'unavailable', message: 'Cookbook AI is unavailable.' }, { status: 503 })
 	let payload
 	try {
 		payload = await request.json()
 	} catch {
 		return json({ status: 'invalid', message: 'Send a recipe idea as JSON.' }, { status: 400 })
 	}
-	const text = typeof payload?.text === 'string' ? payload.text.trim() : ''
+	const text = cleanAiPrompt(payload?.text)
 	if (!text || text.length > 12_000)
 		return json(
-			{ status: 'invalid', message: 'Enter a recipe idea of 12,000 characters or fewer.' },
+			{
+				status: 'invalid',
+				message: 'Enter a recipe idea of 12,000 characters or fewer.',
+				retryCount: 0,
+				maxRetries: MAX_BOUNDED_RETRIES
+			},
 			{ status: 400 }
 		)
+	const active = config()
+	if (!active)
+		return json({ status: 'unavailable', message: 'Cookbook AI is unavailable.' }, { status: 503 })
 	if (!rateLimitCheck(`ai:chat:start:${user.userId}`, { limit: 3, windowMs: 5 * 60_000 }).ok)
 		return json(
 			{ status: 'limited', message: 'Please wait before starting another recipe.' },
@@ -129,7 +135,7 @@ export async function POST({ request, locals, fetch }) {
 			return json(
 				{
 					status: 'unavailable',
-					message: 'Cookbook AI is temporarily unavailable after three bounded retries.',
+					message: `Cookbook AI is temporarily unavailable after ${MAX_BOUNDED_RETRIES} bounded retries.`,
 					retryCount,
 					maxRetries: MAX_BOUNDED_RETRIES
 				},

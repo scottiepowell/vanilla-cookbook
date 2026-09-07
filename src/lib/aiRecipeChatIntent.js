@@ -1,5 +1,9 @@
+export function cleanAiPrompt(value) {
+	return typeof value === 'string' ? value.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim() : ''
+}
+
 function normalized(value) {
-	return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
+	return cleanAiPrompt(value).replace(/\s+/g, ' ')
 }
 
 export function replacementConfirmationAnswer(value) {
