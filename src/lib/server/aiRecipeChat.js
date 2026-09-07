@@ -95,7 +95,11 @@ function assistantMessage(state, result) {
 	if (state === 'no_material_change') {
 		return 'I kept the recipe as-is. Tell me a specific ingredient, method, serving, or instruction change you want.'
 	}
-	if (state === 'rejected') return 'I need a clearer recipe idea before I can make a draft.'
+	if (state === 'rejected') {
+		return result?.draft
+			? 'I could not apply that change. Your current recipe is still available; try a more specific edit.'
+			: 'I need a clearer recipe idea before I can make a draft.'
+	}
 	if (state === 'draft_generated') {
 		return 'Here is your recipe draft. If you want me to change anything, just let me know.'
 	}

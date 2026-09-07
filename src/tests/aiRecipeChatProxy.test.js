@@ -374,6 +374,94 @@ describe('public recipe chat proxy', () => {
 		})
 	})
 
+	it('keeps the current sidecar session for a baked-ziti follow-up and never uses initial clarification copy', async () => {
+		const initial = sidecarResult()
+		initial.draft.title = 'Baked Ziti'
+		initial.draft.ingredients = [
+			{ name: 'ziti', quantity: '16', unit: 'oz' },
+			{ name: 'Italian sausage', quantity: '1', unit: 'lb' }
+		]
+		const startFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(initial), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+		const started = await (
+			await startChat({
+				request: request({ text: 'baked pasta ziti' }),
+				locals: { user: { userId: 'ziti-owner' } },
+				fetch: startFetch
+			})
+		).json()
+		const revised = sidecarResult('draft_revised')
+		revised.draft.title = 'Baked Ziti'
+		revised.draft.servings = 8
+		revised.draft.ingredients = [
+			{ name: 'ziti', quantity: '32', unit: 'oz' },
+			{ name: 'chicken', quantity: '2', unit: 'lb' }
+		]
+		const messageFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(revised), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+
+		const response = await messageChat({
+			request: request({ text: 'change the servings to eight and use chicken instead of sausage' }),
+			locals: { user: { userId: 'ziti-owner' } },
+			fetch: messageFetch,
+			params: { chatId: started.chatId }
+		})
+		const body = await response.json()
+
+		expect(response.status).toBe(200)
+		expect(body.assistantMessage).not.toContain('clearer recipe idea')
+		expect(body.draft).toMatchObject({ title: 'Baked Ziti', servings: 8 })
+		expect(messageFetch.mock.calls[0][0]).toContain('/ai/recipe-session/private-sidecar-session/message')
+		expect(JSON.parse(messageFetch.mock.calls[0][1].body)).toMatchObject({
+			text: 'change the servings to eight and use chicken instead of sausage',
+			provider_mode: 'live',
+			model: 'gpt-5.4-nano'
+		})
+	})
+
+	it('does not use initial-request clarification copy when a rejected follow-up retains a draft', async () => {
+		const retained = sidecarResult('rejected')
+		retained.draft.title = 'Baked Ziti'
+		const startFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify(sidecarResult()), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		)
+		const started = await (
+			await startChat({
+				request: request({ text: 'baked pasta ziti' }),
+				locals: { user: { userId: 'retained-owner' } },
+				fetch: startFetch
+			})
+		).json()
+		const response = await messageChat({
+			request: request({ text: 'change sausage to chicken' }),
+			locals: { user: { userId: 'retained-owner' } },
+			fetch: vi.fn().mockResolvedValue(
+				new Response(JSON.stringify(retained), {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				})
+			),
+			params: { chatId: started.chatId }
+		})
+		const body = await response.json()
+
+		expect(response.status).toBe(200)
+		expect(body.assistantMessage).toContain('could not apply that change')
+		expect(body.assistantMessage).not.toContain('clearer recipe idea')
+		expect(body.changeCount).toBe(0)
+	})
+
 	it('rejects an empty follow-up before any sidecar call or retry', async () => {
 		const startFetch = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify(sidecarResult()), {
