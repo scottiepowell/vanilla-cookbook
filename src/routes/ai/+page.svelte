@@ -1,7 +1,10 @@
 <script>
+	import { goto } from '$app/navigation'
+	import { aiDraftToRecipe, canSaveAiDraft } from '$lib/aiRecipeDraft.js'
 	import Button from '$lib/components/ui/Button.svelte'
 	import Card from '$lib/components/ui/Card.svelte'
 	import Textarea from '$lib/components/ui/Form/Textarea.svelte'
+	import { createRecipe } from '$lib/utils/crud.js'
 	import {
 		explicitNewRecipeRequest,
 		proposedReplacementIdea,
@@ -21,6 +24,8 @@
 	let retryCount = $state(0)
 	let maxRetries = $state(3)
 	let pendingReplacement = $state('')
+	let saving = $state(false)
+	let { data } = $props()
 
 	function resetChat() {
 		prompt = ''
@@ -138,6 +143,31 @@
 			{ role: 'assistant', text: 'Okay, I kept the current recipe. What would you like to change?' }
 		]
 	}
+
+	async function saveRecipe() {
+		if (!canSaveAiDraft(draft) || saving || loading) return
+		saving = true
+		error = ''
+		try {
+			const recipe = aiDraftToRecipe(draft, {
+				sourceNote: source,
+				isPublic: data.userPublicRecipes
+			})
+			const formData = new FormData()
+			formData.append('recipe', JSON.stringify(recipe))
+			const result = await createRecipe(formData)
+			if (!result.success) {
+				error = result.error || 'Cookbook could not save this recipe.'
+				return
+			}
+			await discardCurrentChat()
+			await goto(`/recipe/${result.data.uid}/view/`)
+		} catch (saveError) {
+			error = saveError?.message || 'Cookbook could not save this recipe.'
+		} finally {
+			saving = false
+		}
+	}
 </script>
 
 <svelte:head><title>AI Recipe Chat</title></svelte:head>
@@ -221,6 +251,18 @@
 				</div>
 			</details>
 		</Card>
+		<div class="flex flex-wrap items-center justify-end gap-3">
+			<p class="mr-auto text-sm text-base-content/60">
+				Saving creates a recipe in your Cookbook. You can edit it afterward.
+			</p>
+			<Button
+				onclick={saveRecipe}
+				disabled={saving || loading || !canSaveAiDraft(draft)}
+				loading={saving}
+			>
+				{saving ? 'Saving recipe…' : 'Save to Cookbook'}
+			</Button>
+		</div>
 	{/if}
 
 	{#if grounding}
