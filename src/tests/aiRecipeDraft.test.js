@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { aiDraftToRecipe, canSaveAiDraft } from '$lib/aiRecipeDraft.js'
+import { aiDraftToRecipe, aiDraftValidationErrors, canSaveAiDraft } from '$lib/aiRecipeDraft.js'
 
 const draft = {
 	title: 'Skillet Chickpea Pasta',
@@ -50,11 +50,27 @@ describe('AI recipe draft saving', () => {
 		).toThrow('incomplete')
 	})
 
+	it('validates editable draft fields before saving', () => {
+		expect(aiDraftValidationErrors(draft)).toEqual([])
+		expect(aiDraftValidationErrors({ ...draft, servings: 0 })).toContain(
+			'Servings must be a whole number from 1 to 24.'
+		)
+		expect(aiDraftValidationErrors({ ...draft, ingredients: [{ name: '' }] })).toContain(
+			'Add at least one ingredient.'
+		)
+		expect(
+			aiDraftValidationErrors({ ...draft, instructions: [...draft.instructions, { text: '' }] })
+		).toContain('Every instruction row needs text.')
+	})
+
 	it('renders the guarded canonical save control in the AI page', () => {
 		const page = readFileSync(join(process.cwd(), 'src/routes/ai/+page.svelte'), 'utf8')
 		const server = readFileSync(join(process.cwd(), 'src/routes/ai/+page.server.js'), 'utf8')
 
 		expect(page).toContain('Save to Cookbook')
+		expect(page).toContain('Edit draft')
+		expect(page).toContain('Add ingredient')
+		expect(page).toContain('Add instruction')
 		expect(page).toContain('createRecipe(formData)')
 		expect(page).toContain('disabled={saving || loading || !canSaveAiDraft(draft)}')
 		expect(server).toContain('userPublicRecipes: locals.user.publicRecipes ?? false')

@@ -1,8 +1,9 @@
 <script>
 	import { goto } from '$app/navigation'
-	import { aiDraftToRecipe, canSaveAiDraft } from '$lib/aiRecipeDraft.js'
+	import { aiDraftToRecipe, aiDraftValidationErrors, canSaveAiDraft } from '$lib/aiRecipeDraft.js'
 	import Button from '$lib/components/ui/Button.svelte'
 	import Card from '$lib/components/ui/Card.svelte'
+	import Input from '$lib/components/ui/Form/Input.svelte'
 	import Textarea from '$lib/components/ui/Form/Textarea.svelte'
 	import { createRecipe } from '$lib/utils/crud.js'
 	import {
@@ -26,7 +27,9 @@
 	let maxRetries = $state(5)
 	let pendingReplacement = $state('')
 	let saving = $state(false)
+	let editingDraft = $state(false)
 	let { data } = $props()
+	let draftErrors = $derived(aiDraftValidationErrors(draft))
 
 	function resetChat() {
 		prompt = ''
@@ -41,6 +44,7 @@
 		retryCount = 0
 		maxRetries = 5
 		pendingReplacement = ''
+		editingDraft = false
 	}
 
 	async function discardCurrentChat() {
@@ -64,6 +68,61 @@
 		pendingReplacement = result.replacementSuggested
 			? proposedReplacementIdea(messages.at(-2)?.text || '')
 			: ''
+		editingDraft = false
+	}
+
+	function updateDraftField(field, value) {
+		draft = { ...draft, [field]: value }
+	}
+
+	function updateIngredient(index, field, value) {
+		draft = {
+			...draft,
+			ingredients: draft.ingredients.map((item, itemIndex) =>
+				itemIndex === index ? { ...item, [field]: value } : item
+			)
+		}
+	}
+
+	function addIngredient() {
+		draft = {
+			...draft,
+			ingredients: [...draft.ingredients, { quantity: '', unit: '', name: '', note: '' }]
+		}
+	}
+
+	function removeIngredient(index) {
+		if (draft.ingredients.length <= 1) return
+		draft = {
+			...draft,
+			ingredients: draft.ingredients.filter((_, itemIndex) => itemIndex !== index)
+		}
+	}
+
+	function updateInstruction(index, value) {
+		draft = {
+			...draft,
+			instructions: draft.instructions.map((item, itemIndex) =>
+				itemIndex === index ? { ...item, step: index + 1, text: value } : item
+			)
+		}
+	}
+
+	function addInstruction() {
+		draft = {
+			...draft,
+			instructions: [...draft.instructions, { step: draft.instructions.length + 1, text: '' }]
+		}
+	}
+
+	function removeInstruction(index) {
+		if (draft.instructions.length <= 1) return
+		draft = {
+			...draft,
+			instructions: draft.instructions
+				.filter((_, itemIndex) => itemIndex !== index)
+				.map((item, itemIndex) => ({ ...item, step: itemIndex + 1 }))
+		}
 	}
 
 	async function sendPrompt(override = null) {
@@ -221,40 +280,142 @@
 			<details open class="disclosure">
 				<summary class="cursor-pointer text-xl font-bold">Recipe draft</summary>
 				<div class="mt-4 flex flex-col gap-4">
-					<div>
-						<p class="text-xs font-semibold uppercase tracking-wide text-primary">
-							Review before saving
-						</p>
-						<h2 class="mt-1 text-2xl font-bold">{draft.title}</h2>
-						{#if draft.description}<p class="mt-2 text-base-content/70">{draft.description}</p>{/if}
-						{#if draft.servings}<p class="mt-2 text-sm">Serves {draft.servings}</p>{/if}
+					<div class="flex flex-wrap items-start justify-between gap-3">
+						<div>
+							<p class="text-xs font-semibold uppercase tracking-wide text-primary">
+								Review before saving
+							</p>
+						</div>
+						<Button onclick={() => (editingDraft = !editingDraft)} style="outline">
+							{editingDraft ? 'Done editing' : 'Edit draft'}
+						</Button>
 					</div>
+
+					{#if editingDraft}
+						<div class="grid gap-3 sm:grid-cols-2">
+							<Input
+								label="Recipe title"
+								value={draft.title || ''}
+								required={true}
+								oninput={(event) => updateDraftField('title', event.target.value)}
+							/>
+							<Input
+								label="Servings"
+								type="number"
+								value={String(draft.servings || '')}
+								required={true}
+								oninput={(event) => updateDraftField('servings', Number(event.target.value))}
+							/>
+						</div>
+						<Textarea
+							label="Description"
+							rows={3}
+							value={draft.description || ''}
+							oninput={(event) => updateDraftField('description', event.target.value)}
+						/>
+					{:else}
+						<div>
+							<h2 class="mt-1 text-2xl font-bold">{draft.title}</h2>
+							{#if draft.description}<p class="mt-2 text-base-content/70">
+									{draft.description}
+								</p>{/if}
+							{#if draft.servings}<p class="mt-2 text-sm">Serves {draft.servings}</p>{/if}
+						</div>
+					{/if}
 
 					<details open class="disclosure rounded-lg border border-base-300 p-3">
 						<summary class="cursor-pointer font-semibold"
 							>Ingredients ({draft.ingredients.length})</summary
 						>
-						<ul class="mt-3 list-disc space-y-1 pl-5">
-							{#each draft.ingredients as ingredient}
-								<li>
-									{[ingredient.quantity, ingredient.unit, ingredient.name, ingredient.note]
-										.filter(Boolean)
-										.join(' ')}
-								</li>
-							{/each}
-						</ul>
+						{#if editingDraft}
+							<div class="mt-3 flex flex-col gap-3">
+								{#each draft.ingredients as ingredient, index}
+									<div class="rounded-lg bg-base-200 p-3">
+										<div class="grid gap-2 sm:grid-cols-[1fr_1fr_2fr]">
+											<Input
+												label="Quantity"
+												value={ingredient.quantity || ''}
+												oninput={(event) => updateIngredient(index, 'quantity', event.target.value)}
+											/>
+											<Input
+												label="Unit"
+												value={ingredient.unit || ''}
+												oninput={(event) => updateIngredient(index, 'unit', event.target.value)}
+											/>
+											<Input
+												label="Ingredient"
+												value={ingredient.name || ''}
+												required={true}
+												oninput={(event) => updateIngredient(index, 'name', event.target.value)}
+											/>
+										</div>
+										<div class="mt-2 flex items-end gap-2">
+											<Input
+												label="Note"
+												value={ingredient.note || ''}
+												oninput={(event) => updateIngredient(index, 'note', event.target.value)}
+											/>
+											<Button
+												style="outline"
+												disabled={draft.ingredients.length <= 1}
+												onclick={() => removeIngredient(index)}>Remove</Button
+											>
+										</div>
+									</div>
+								{/each}
+								<Button style="outline" onclick={addIngredient}>Add ingredient</Button>
+							</div>
+						{:else}
+							<ul class="mt-3 list-disc space-y-1 pl-5">
+								{#each draft.ingredients as ingredient}
+									<li>
+										{[ingredient.quantity, ingredient.unit, ingredient.name, ingredient.note]
+											.filter(Boolean)
+											.join(' ')}
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					</details>
 
 					<details open class="disclosure rounded-lg border border-base-300 p-3">
 						<summary class="cursor-pointer font-semibold"
 							>Instructions ({draft.instructions.length})</summary
 						>
-						<ol class="mt-3 list-decimal space-y-2 pl-5">
-							{#each draft.instructions as instruction}
-								<li>{instruction.text}</li>
-							{/each}
-						</ol>
+						{#if editingDraft}
+							<div class="mt-3 flex flex-col gap-3">
+								{#each draft.instructions as instruction, index}
+									<div class="flex items-end gap-2">
+										<Textarea
+											label={`Step ${index + 1}`}
+											rows={3}
+											value={instruction.text || ''}
+											required={true}
+											oninput={(event) => updateInstruction(index, event.target.value)}
+										/>
+										<Button
+											style="outline"
+											disabled={draft.instructions.length <= 1}
+											onclick={() => removeInstruction(index)}>Remove</Button
+										>
+									</div>
+								{/each}
+								<Button style="outline" onclick={addInstruction}>Add instruction</Button>
+							</div>
+						{:else}
+							<ol class="mt-3 list-decimal space-y-2 pl-5">
+								{#each draft.instructions as instruction}<li>{instruction.text}</li>{/each}
+							</ol>
+						{/if}
 					</details>
+
+					{#if draftErrors.length}
+						<div class="alert alert-warning" role="status">
+							<ul class="list-disc pl-5">
+								{#each draftErrors as validationError}<li>{validationError}</li>{/each}
+							</ul>
+						</div>
+					{/if}
 				</div>
 			</details>
 		</Card>

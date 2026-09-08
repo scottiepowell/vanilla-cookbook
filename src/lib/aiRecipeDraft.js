@@ -17,13 +17,34 @@ function sourceFields(sourceNote) {
 }
 
 export function canSaveAiDraft(draft) {
-	return Boolean(
-		clean(draft?.title) &&
-			Array.isArray(draft?.ingredients) &&
-			draft.ingredients.some((item) => clean(item?.name)) &&
-			Array.isArray(draft?.instructions) &&
-			draft.instructions.some((item) => clean(item?.text))
-	)
+	return aiDraftValidationErrors(draft).length === 0
+}
+
+export function aiDraftValidationErrors(draft) {
+	const errors = []
+	if (!clean(draft?.title)) errors.push('Add a recipe title.')
+
+	const servings = Number(draft?.servings)
+	if (!Number.isInteger(servings) || servings < 1 || servings > 24) {
+		errors.push('Servings must be a whole number from 1 to 24.')
+	}
+
+	if (!Array.isArray(draft?.ingredients) || !draft.ingredients.some((item) => clean(item?.name))) {
+		errors.push('Add at least one ingredient.')
+	} else if (draft.ingredients.some((item) => !clean(item?.name))) {
+		errors.push('Every ingredient row needs a name.')
+	}
+
+	if (
+		!Array.isArray(draft?.instructions) ||
+		!draft.instructions.some((item) => clean(item?.text))
+	) {
+		errors.push('Add at least one instruction.')
+	} else if (draft.instructions.some((item) => !clean(item?.text))) {
+		errors.push('Every instruction row needs text.')
+	}
+
+	return errors
 }
 
 export function aiDraftToRecipe(draft, { sourceNote = '', isPublic = false } = {}) {
