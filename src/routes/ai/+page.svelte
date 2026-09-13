@@ -30,6 +30,37 @@
 	let editingDraft = $state(false)
 	let { data } = $props()
 	let draftErrors = $derived(aiDraftValidationErrors(draft))
+	let advisoryTask = $state('recipe_titles')
+	let advisoryText = $state('')
+	let advisoryPublic = $state(false)
+	let advisoryItems = $state([])
+	let advisoryStatus = $state('')
+	let advisoryLoading = $state(false)
+
+	async function getAdvisoryIdeas() {
+		if (advisoryLoading || !advisoryPublic || !advisoryText.trim()) return
+		advisoryLoading = true
+		advisoryStatus = ''
+		advisoryItems = []
+		try {
+			const response = await fetch('/api/ai/advisory', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ task: advisoryTask, text: advisoryText, publicOrSynthetic: true })
+			})
+			const result = await response.json()
+			if (!response.ok) throw new Error(result.message || 'Kitchen ideas are unavailable.')
+			advisoryItems = result.items || []
+			advisoryStatus =
+				result.status === 'ok'
+					? 'Ideas to review. Nothing has been saved.'
+					: 'Suggestions are unavailable right now. Your original text is shown below.'
+		} catch (reason) {
+			advisoryStatus = reason?.message || 'Kitchen ideas are temporarily unavailable.'
+		} finally {
+			advisoryLoading = false
+		}
+	}
 
 	function resetChat() {
 		prompt = ''
@@ -497,6 +528,59 @@
 	</Card>
 
 	{#if error}<div class="alert alert-warning" role="status">{error}</div>{/if}
+
+	<Card bordered={true}>
+		<details class="disclosure">
+			<summary class="cursor-pointer text-xl font-bold">Kitchen ideas</summary>
+			<div class="mt-4 flex flex-col gap-4">
+				<p class="text-sm text-base-content/70">
+					Try quick, optional suggestions using public or invented cooking details. Do not paste a
+					saved recipe, personal details, or allergy or medical information. Review every suggestion
+					yourself.
+				</p>
+				<label class="form-control">
+					<span class="label-text mb-2">What would you like help with?</span>
+					<select class="select select-bordered" bind:value={advisoryTask}>
+						<option value="recipe_titles">Recipe titles</option>
+						<option value="ingredient_parse">Ingredient wording and units</option>
+						<option value="instruction_cleanup">Instruction cleanup</option>
+						<option value="substitution_ideas">Optional substitutions</option>
+						<option value="shopping_group">Shopping aisle labels</option>
+						<option value="pantry_ideas">Pantry meal ideas</option>
+						<option value="meal_ideas">Meal ideas</option>
+						<option value="plain_language">Plain-language rewrite</option>
+						<option value="query_expansion">Search wording</option>
+					</select>
+				</label>
+				<Textarea
+					label="Public or invented text, one item per line"
+					rows={4}
+					bind:value={advisoryText}
+				/>
+				<label class="flex items-start gap-2 text-sm">
+					<input type="checkbox" class="checkbox checkbox-sm" bind:checked={advisoryPublic} />
+					<span>I am using only public or invented cooking details.</span>
+				</label>
+				<Button
+					onclick={getAdvisoryIdeas}
+					disabled={advisoryLoading || !advisoryPublic || !advisoryText.trim()}
+				>
+					{advisoryLoading ? 'Thinking…' : 'Get ideas'}
+				</Button>
+				{#if advisoryStatus}<p role="status" class="text-sm">{advisoryStatus}</p>{/if}
+				{#if advisoryItems.length}
+					<ul class="space-y-3" aria-label="Kitchen ideas">
+						{#each advisoryItems as item}
+							<li class="rounded-lg bg-base-200 p-3 text-sm">
+								<p class="text-base-content/60">{item.source}</p>
+								<p class="mt-1">{item.suggestion}</p>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		</details>
+	</Card>
 </div>
 
 <style>
