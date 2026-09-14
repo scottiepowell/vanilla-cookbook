@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+// Unit tests vary provider availability; read each stubbed value at call time.
+vi.mock('$env/dynamic/private', () => ({
+	env: new Proxy({}, { get: (_, key) => process.env[key] })
+}))
 import {
 	parseLLMJsonOutput,
 	translateRecipeWithLLM,
@@ -337,7 +341,7 @@ describe('translateRecipeWithLLM', () => {
 		name: 'Saumon en galettes',
 		author: 'Chef Jean',
 		ingredients: ['500g de saumon sauvage frais'],
-		instructions: ["Émietter le saumon dans un bol."]
+		instructions: ['Émietter le saumon dans un bol.']
 	}
 
 	beforeEach(() => {
