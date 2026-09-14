@@ -58,7 +58,7 @@ test('signed-in ingredient search opens real saved and public recipe links', asy
 		'href',
 		'https://www.foodnetwork.com/fnk/recipes/carrot-and-red-onion-salad-10034791'
 	)
-	await expect(page.getByText('Not matched: lettuce', { exact: true })).toBeVisible()
+	await expect(page.getByText('Not matched: lettuce', { exact: true }).first()).toBeVisible()
 	await saved.click()
 	await expect(
 		page.getByRole('heading', { name: 'Generated discovery salad', exact: true })
