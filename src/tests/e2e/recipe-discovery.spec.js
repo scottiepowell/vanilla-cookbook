@@ -51,6 +51,13 @@ test('signed-in ingredient search opens real saved and public recipe links', asy
 		'href',
 		'https://www.foodnetwork.com/recipes/food-network-kitchen/spring-vegetable-salad-3364967'
 	)
+	await expect(page.getByText('A small catalog of 8 reviewed recipe links.')).toBeVisible()
+	await expect(
+		page.getByRole('link', { name: 'Carrot and Red Onion Salad', exact: true })
+	).toHaveAttribute(
+		'href',
+		'https://www.foodnetwork.com/fnk/recipes/carrot-and-red-onion-salad-10034791'
+	)
 	await expect(page.getByText('Not matched: lettuce', { exact: true })).toBeVisible()
 	await saved.click()
 	await expect(
