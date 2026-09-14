@@ -1,4 +1,5 @@
 <script>
+	import RecipeDiscovery from '$lib/components/RecipeDiscovery.svelte'
 	import { goto } from '$app/navigation'
 	import { aiDraftToRecipe, aiDraftValidationErrors, canSaveAiDraft } from '$lib/aiRecipeDraft.js'
 	import Button from '$lib/components/ui/Button.svelte'
@@ -529,6 +530,7 @@
 
 	{#if error}<div class="alert alert-warning" role="status">{error}</div>{/if}
 
+	<RecipeDiscovery />
 	<Card bordered={true}>
 		<details class="disclosure">
 			<summary class="cursor-pointer text-xl font-bold">Kitchen ideas</summary>
