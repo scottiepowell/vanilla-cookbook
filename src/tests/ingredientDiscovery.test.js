@@ -31,6 +31,29 @@ describe('ingredient matching', () => {
 			rankRecipes([{ uid: 'x', name: 'Egg salad', ingredients: 'eggplant' }], ['egg'])
 		).toEqual([])
 	})
+	it('matches common lettuce types and accented names without broadening specific requests', () => {
+		const recipes = [
+			{ uid: 'r', name: 'Romaine salad', ingredients: 'romaine hearts\nred onion' },
+			{ uid: 'i', name: 'Iceberg salad', ingredients: 'iceberg\nred onion' },
+			{ uid: 'g', name: 'Generic salad', ingredients: 'lettuce\nred onion' }
+		]
+		expect(rankRecipes(recipes, parseIngredients('lettuce, onions')).map((r) => r.uid)).toEqual([
+			'g',
+			'i',
+			'r'
+		])
+		expect(rankRecipes(recipes, parseIngredients('romaine')).map((r) => r.uid)).toEqual(['r'])
+		expect(parseIngredients('jalapeños, berries')).toEqual(['jalapeno', 'berry'])
+	})
+	it('keeps multiword ingredients within one ingredient entry', () => {
+		const recipes = [
+			{ uid: 'separate', name: 'Separate', ingredients: 'red onion\npowdered sugar' },
+			{ uid: 'exact', name: 'Exact', ingredients: 'onion powder\nsalt' }
+		]
+		expect(rankRecipes(recipes, parseIngredients('onion powder')).map((r) => r.uid)).toEqual([
+			'exact'
+		])
+	})
 	it.each(['', 'x'.repeat(301), null, Array.from({ length: 13 }, (_, i) => `food${i}`).join(',')])(
 		'bounds input %s',
 		(input) => {

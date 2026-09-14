@@ -1,10 +1,30 @@
 /** Bounded ingredient-name matching without sending canonical data to an LLM. */
 const singular = (word) =>
 	({ tomatoes: 'tomato', potatoes: 'potato', leaves: 'leaf' })[word] ||
+	(word.length > 4 && word.endsWith('ies') ? `${word.slice(0, -3)}y` : null) ||
 	(word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word)
 
 export function normalizeIngredient(value) {
-	return (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).map(singular).join(' ')
+	return (
+		value
+			.toLowerCase()
+			.normalize('NFKD')
+			.replace(/\p{M}/gu, '')
+			.match(/[\p{L}\p{N}]+/gu) || []
+	)
+		.map(singular)
+		.join(' ')
+}
+
+const ingredientVariants = (item) =>
+	item === 'lettuce' ? ['lettuce', 'romaine', 'iceberg'] : [item]
+
+function hasIngredient(recipeIngredients, item) {
+	const entries = String(recipeIngredients || '').split(/[\n,;]+/)
+	return entries.some((entry) => {
+		const words = ` ${normalizeIngredient(entry)} `
+		return ingredientVariants(item).some((variant) => words.includes(` ${variant} `))
+	})
 }
 
 export function parseIngredients(text) {
@@ -25,8 +45,7 @@ export function parseIngredients(text) {
 export function rankRecipes(recipes, ingredients) {
 	return recipes
 		.map((recipe) => {
-			const words = ` ${normalizeIngredient(recipe.ingredients || '')} `
-			const matched = ingredients.filter((item) => words.includes(` ${item} `))
+			const matched = ingredients.filter((item) => hasIngredient(recipe.ingredients, item))
 			return {
 				uid: recipe.uid,
 				name: recipe.name,

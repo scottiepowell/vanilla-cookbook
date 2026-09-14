@@ -3,6 +3,24 @@
 import { findSuitableUnit } from '$lib/utils/units.js'
 import { config } from 'dotenv'
 import { convertIngredientsBackend } from '$lib/utils/converterBackend.js'
+import { vi } from 'vitest'
+
+// Conversion uses the shipped density CSV; do not depend on a developer's SQLite database.
+vi.mock('$lib/server/prisma', async () => {
+	const { createReadStream } = await import('node:fs')
+	const csv = (await import('csv-parser')).default
+	const rows = await new Promise((resolve, reject) => {
+		const ingredients = []
+		createReadStream('src/lib/data/ingredients/dry_ingredient_data.csv')
+			.pipe(csv())
+			.on('data', (row) =>
+				ingredients.push({ name: row.name, gramsPerCup: Number(row.gramsPerCup) })
+			)
+			.on('end', () => resolve(ingredients))
+			.on('error', reject)
+	})
+	return { prisma: { ingredient: { findMany: vi.fn().mockResolvedValue(rows) } } }
+})
 
 config()
 

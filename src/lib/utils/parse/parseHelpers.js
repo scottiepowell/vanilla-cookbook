@@ -111,7 +111,10 @@ export function parseIngredients(ingredients) {
 
 	// Split comma-separated string into individual ingredients
 	if (typeof ingredients === 'string') {
-		return ingredients.split(',').map((s) => s.trim()).filter(Boolean)
+		return ingredients
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean)
 	}
 
 	return []
@@ -235,7 +238,7 @@ export function parseUsingSiteConfig(root, config) {
 			})
 			.filter(Boolean)
 
-		return multiple ? values : values[0] ?? null
+		return multiple ? values : (values[0] ?? null)
 	}
 
 	return {
@@ -303,7 +306,6 @@ export function extractMicrodata(root) {
 		if (!recipeIngredient.length) {
 			recipeIngredient = extractTextFromSelector(item, '[itemprop="ingredients"]')
 		}
-
 
 		// If still no ingredients found, try the custom extraction method
 		if (!recipeIngredient?.length) {
@@ -468,6 +470,9 @@ export function cleanJsonString(jsonString) {
 
 	// Remove tab characters
 	cleanedString = cleanedString.replace(/\t/g, '')
+	// Some publishers put CRLF inside quoted JSON-LD instructions. The line feed
+	// below becomes a space; remove its carriage return too so JSON.parse can read it.
+	cleanedString = cleanedString.replace(/\r/g, '')
 
 	// Remove unnecessary spaces around special characters
 	cleanedString = cleanedString.replace(/ & /g, '&')
