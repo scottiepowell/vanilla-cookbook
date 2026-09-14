@@ -11,7 +11,9 @@ const admin = {
 const seededRecipes = [
 	'Kewpie-Style Mayonnaise',
 	'Spaghetti alla puttanesca',
-	"Chef John's Fresh Salmon Cakes"
+	"Chef John's Fresh Salmon Cakes",
+	'Sheet-Pan Lemon Herb Chicken and Vegetables',
+	'Creamy Tomato Chickpea Pasta'
 ]
 
 async function expectOk(response) {
@@ -134,17 +136,32 @@ test('fresh install admin seed, login, and page smoke tests', async ({ page }, t
 	await assertPage(page, `/user/${userId}/shopping`, { heading: 'Shopping' }, projectName)
 	await assertPage(page, `/user/${userId}/calendar`, { heading: 'Cooking History' }, projectName)
 	await assertPage(page, `/user/${userId}/options/settings`, { heading: 'Account' }, projectName)
-	await assertPage(page, `/user/${userId}/options/recipes`, { text: 'Select language' }, projectName)
+	await assertPage(
+		page,
+		`/user/${userId}/options/recipes`,
+		{ text: 'Select language' },
+		projectName
+	)
 	await assertPage(
 		page,
 		`/user/${userId}/options/bookmark`,
 		{
-		text: 'Drag This Bookmark to Your Browser Toolbar'
+			text: 'Drag This Bookmark to Your Browser Toolbar'
 		},
 		projectName
 	)
-	await assertPage(page, `/user/${userId}/options/export`, { heading: 'Export Recipes' }, projectName)
-	await assertPage(page, `/user/${userId}/options/import`, { heading: 'Import Recipes' }, projectName)
+	await assertPage(
+		page,
+		`/user/${userId}/options/export`,
+		{ heading: 'Export Recipes' },
+		projectName
+	)
+	await assertPage(
+		page,
+		`/user/${userId}/options/import`,
+		{ heading: 'Import Recipes' },
+		projectName
+	)
 	await assertPage(
 		page,
 		`/user/${userId}/options/admin/site`,
@@ -167,7 +184,9 @@ test('fresh install admin seed, login, and page smoke tests', async ({ page }, t
 			status >= 200 && status < 400,
 			`Expected ${response?.url()} to return 2xx/3xx, got ${status}`
 		).toBeTruthy()
-		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({ timeout: 15000 })
+		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({
+			timeout: 15000
+		})
 	})
 	console.log(`[${projectName}] PASS SSR refresh recipe page`)
 
@@ -175,7 +194,9 @@ test('fresh install admin seed, login, and page smoke tests', async ({ page }, t
 	await test.step(`[${projectName}] edit recipe`, async () => {
 		// Navigate to first recipe view page
 		await page.goto(firstRecipeHref, { waitUntil: 'networkidle' })
-		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({ timeout: 15000 })
+		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({
+			timeout: 15000
+		})
 
 		// Click the edit recipe link (not the edit images link)
 		const editLink = page.locator('a[href*="/edit"]').first()
@@ -198,7 +219,9 @@ test('fresh install admin seed, login, and page smoke tests', async ({ page }, t
 
 		// Verify redirect back to view page (indicates success)
 		await page.waitForURL('**/view**', { timeout: 30000 })
-		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({ timeout: 15000 })
+		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({
+			timeout: 15000
+		})
 	})
 	console.log(`[${projectName}] PASS edit recipe`)
 
@@ -218,7 +241,9 @@ test('fresh install admin seed, login, and page smoke tests', async ({ page }, t
 			status >= 200 && status < 400,
 			`Expected ${response?.url()} to return 2xx/3xx, got ${status}`
 		).toBeTruthy()
-		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({ timeout: 15000 })
+		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({
+			timeout: 15000
+		})
 
 		// Reload to test anonymous SSR refresh
 		const reloadResponse = await page.reload({ waitUntil: 'networkidle' })
@@ -227,7 +252,9 @@ test('fresh install admin seed, login, and page smoke tests', async ({ page }, t
 			reloadStatus >= 200 && reloadStatus < 400,
 			`Expected ${reloadResponse?.url()} to return 2xx/3xx on reload, got ${reloadStatus}`
 		).toBeTruthy()
-		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({ timeout: 15000 })
+		await expect(page.getByRole('heading', { name: seededRecipes[0] })).toBeVisible({
+			timeout: 15000
+		})
 	})
 	console.log(`[${projectName}] PASS anonymous SSR access to public recipe`)
 

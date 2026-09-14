@@ -5,7 +5,7 @@
 This suite is a fresh-install smoke test that validates the core user flow and page availability:
 
 - Creates an admin user via the first-run setup screen (the `/` seed flow).
-- Logs in and verifies the three seeded sample recipes exist.
+- Logs in and verifies the five seeded sample recipes exist.
 - Loads key pages to ensure they render without errors.
 - Loads the first recipe view page.
 - Fails on runtime issues (page errors, console warnings/errors, or failed network requests).

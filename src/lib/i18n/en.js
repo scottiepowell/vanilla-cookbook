@@ -68,7 +68,7 @@ export default {
 		haveAccount: 'Already have an account?',
 		registrationDisabled:
 			'New account sign-ups are disabled. You can still sign in with an existing account.',
-		seedAccount: 'Seed my account with 3 example recipes',
+		seedAccount: 'Seed my account with 5 example recipes',
 		continueWithGoogle: 'Continue with Google',
 		continueWithGitHub: 'Continue with GitHub',
 		continueWithOidc: 'Continue with {name}',
@@ -148,6 +148,22 @@ export default {
 	},
 
 	home: {
+		landingEyebrow: 'Your recipes, your kitchen',
+		landingTitle: 'Welcome to Vanilla Cookbook',
+		landingDescription:
+			'Keep recipes organized, cook from a collection you control, and return to your kitchen from any device.',
+		loginExisting: 'Log in to your cookbook',
+		setupAdmin: 'Create the first administrator',
+		createAccount: 'Create an account',
+		memberCardTitle: 'Already have an account?',
+		memberCardDescription:
+			'Log in with your existing cookbook credentials to reach your recipes and settings.',
+		adminCardTitle: 'Setting up this cookbook?',
+		adminCardDescription:
+			'Create the first administrator account to configure the site and manage user access.',
+		accountCardTitle: 'New to this cookbook?',
+		accountCardDescription:
+			'Account creation is controlled by the cookbook administrator and appears here when registration is open.',
 		empty: 'Nothing here yet — add some recipes to get started!',
 		addFirst: 'Add your first recipe',
 		recentlyAdded: 'Recently Added',
@@ -388,11 +404,11 @@ export default {
 			parseIncomplete: 'Recipe parsing incomplete.',
 			parseFailed: 'Failed to parse recipe.',
 			noImage: 'No image selected.',
-				noFile: 'No file selected.',
-				parsingHtml: 'Parsing HTML file...',
-				htmlSuccess: 'HTML parsed successfully.',
-				htmlPartial: 'HTML only partially parsed. Please review before saving.',
-				htmlError: 'Failed to extract recipe from HTML file.',
+			noFile: 'No file selected.',
+			parsingHtml: 'Parsing HTML file...',
+			htmlSuccess: 'HTML parsed successfully.',
+			htmlPartial: 'HTML only partially parsed. Please review before saving.',
+			htmlError: 'Failed to extract recipe from HTML file.',
 			invalidImageType: 'Invalid image type.',
 			analyzingImage: 'Analyzing image...',
 			imageAiSuccess: 'AI image parse success!',
@@ -413,9 +429,12 @@ export default {
 			youtubePartial: 'Partial recipe extracted from YouTube video. Please review before saving.',
 			youtubeNoRecipe: 'Could not find a recipe in this video.',
 			youtubeNoAi: 'AI parsing is required to extract recipes from YouTube videos.',
-			youtubeNoDescription: 'No description found on this video. Try copying the text and using the Text tab.',
-			instagramBlocked: 'Instagram doesn’t allow recipe scraping. Copy the post caption and use the Text tab instead.',
-			tiktokBlocked: 'TikTok doesn’t allow recipe scraping. Copy the video caption and use the Text tab instead.'
+			youtubeNoDescription:
+				'No description found on this video. Try copying the text and using the Text tab.',
+			instagramBlocked:
+				'Instagram doesn’t allow recipe scraping. Copy the post caption and use the Text tab instead.',
+			tiktokBlocked:
+				'TikTok doesn’t allow recipe scraping. Copy the video caption and use the Text tab instead.'
 		}
 	},
 
@@ -647,7 +666,7 @@ export default {
 			adminRights: 'User has admin rights.',
 			standardRights: 'User has standard rights.',
 			seedRecipes: 'Seed Recipes',
-			seedYes: 'Add three sample recipes to this account.',
+			seedYes: 'Add five sample recipes to this account.',
 			seedNo: 'Do not add sample recipes.',
 			editTitle: 'Edit User',
 			createTitle: 'Create User',
